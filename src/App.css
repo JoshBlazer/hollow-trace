@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Global reset ─────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background-color: #000000;
+  color: #00ff41;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ── Scanline overlay ─────────────────────────────────── */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.12) 2px,
+    rgba(0, 0, 0, 0.12) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── Neon border utilities ────────────────────────────── */
+.ht-border {
+  border: 1px solid #00ff41;
+  box-shadow: 0 0 4px #00ff41, 0 0 8px #00ff41;
+}
+
+.ht-border-alert {
+  border: 1px solid #ff0055;
+  box-shadow: 0 0 4px #ff0055, 0 0 8px #ff0055;
+}
+
+.ht-border-warn {
+  border: 1px solid #ff6600;
+  box-shadow: 0 0 4px #ff6600, 0 0 8px #ff6600;
+}
+
+/* ── Scrollbar ────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: #000; }
+::-webkit-scrollbar-thumb { background: #00ff41; border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: #00cc33; }
+
+/* ── Selection ────────────────────────────────────────── */
+::selection {
+  background: #00ff41;
+  color: #000000;
+}
