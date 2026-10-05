@@ -8,24 +8,34 @@ import ThreatScore from './ThreatScore'
 
 const MAX_BLIPS = 50
 const RECENT_LIST_COUNT = 6
+// Only the newest few blips of a batch ping — pinging a whole batch smears the radar
+const MAX_PINGS_PER_BATCH = 3
 
 const CENTER = 100
-const MAX_R = 88
+const MAX_R = 90
 
-const SEVERITY_R: Record<Severity, number> = {
-  critical: 0.84,
-  high:     0.66,
-  medium:   0.46,
-  low:      0.26,
+// Radial band per severity as [inner, outer] fractions of MAX_R, aligned to RadarRing's rings
+const SEVERITY_BAND: Record<Severity, [number, number]> = {
+  critical: [0.76, 0.97],
+  high:     [0.51, 0.73],
+  medium:   [0.27, 0.48],
+  low:      [0.08, 0.23],
+}
+
+// Deterministic 0..1 hash so a blip keeps its position across re-renders
+function hash01(n: number): number {
+  const x = Math.sin(n * 12.9898) * 43758.5453
+  return x - Math.floor(x)
 }
 
 function blipPosition(anomaly: Anomaly): { cx: number; cy: number } {
   // Golden angle ~137.508° gives near-uniform angular distribution
   const angleDeg = (anomaly.id * 137.508) % 360
   const angleRad = (angleDeg * Math.PI) / 180
-  // Small jitter within severity band to prevent overlap
-  const jitter = ((anomaly.id * 7 + anomaly.entryId * 3) % 14) - 7
-  const r = Math.max(6, Math.min(MAX_R, SEVERITY_R[anomaly.severity] * MAX_R + jitter))
+  // Spread across the whole band (sqrt keeps density even by area), independent of angle
+  const [inner, outer] = SEVERITY_BAND[anomaly.severity]
+  const t = Math.sqrt(hash01(anomaly.id + anomaly.entryId * 31))
+  const r = (inner + (outer - inner) * t) * MAX_R
   return {
     cx: CENTER + r * Math.sin(angleRad),
     cy: CENTER - r * Math.cos(angleRad),
@@ -44,11 +54,14 @@ export default function SonarPanel({ threatScore }: Props) {
     if (!incoming.length) return
 
     setAnomalies(prev => {
-      const next = [...prev, ...incoming]
+      // Anomaly ids restart at 0 when a new file is opened — drop stale blips that
+      // reuse an incoming id so React keys stay unique.
+      const incomingIds = new Set(incoming.map(a => a.id))
+      const next = [...prev.filter(a => !incomingIds.has(a.id)), ...incoming]
       return next.length > MAX_BLIPS ? next.slice(next.length - MAX_BLIPS) : next
     })
 
-    const ids = incoming.map(a => a.id)
+    const ids = incoming.slice(-MAX_PINGS_PER_BATCH).map(a => a.id)
     setNewIds(prev => new Set([...prev, ...ids]))
     setTimeout(() => {
       setNewIds(prev => {
@@ -110,7 +123,7 @@ export default function SonarPanel({ threatScore }: Props) {
                 >
                   {severityLabel(a.severity).slice(0, 3)}
                 </span>
-                <span className="flex-1 truncate text-neon/50 text-[10px]">
+                <span className="flex-1 truncate text-neon/50 text-[10px]" title={a.description}>
                   {a.description}
                 </span>
               </div>
