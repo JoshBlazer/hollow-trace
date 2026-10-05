@@ -51,11 +51,11 @@ The first build compiles the Rust dependencies and takes several minutes. Later 
 npm run tauri build
 ```
 
-Installers are written to `src-tauri/target/release/bundle/`. Release builds are much faster at runtime than `tauri dev`: parsing and detecting 10,000 lines takes about 80 ms.
+Installers are written to `src-tauri/target/release/bundle/`. The app icon's source is `app-icon.svg`; after editing it, regenerate every size with `npx tauri icon app-icon.svg`. Release builds are much faster at runtime than `tauri dev`: parsing and detecting 10,000 lines takes about 80 ms.
 
 ## Usage
 
-Press **Ctrl+K** (⌘K on macOS) to open the command palette, then choose one of these commands:
+Press **Ctrl+K** (⌘K on macOS) to open the command palette, then choose one of these commands. **Ctrl+O** (⌘O) opens a file directly.
 
 | Command | What it does |
 |---|---|
