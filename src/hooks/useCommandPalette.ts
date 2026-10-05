@@ -1,13 +1,27 @@
 import { useState, useEffect, useCallback } from 'react'
+import { pickAndOpenFile } from '../lib/file-actions'
+
+// Module-level so a held/repeated Ctrl+O can't stack dialogs while one is open
+let openFileInFlight = false
 
 export function useCommandPalette() {
   const [isOpen, setIsOpen] = useState(false)
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const key = e.key.toLowerCase()
+      if (key === 'k') {
         e.preventDefault()
         setIsOpen(prev => !prev)
+      } else if (key === 'o') {
+        e.preventDefault()
+        if (openFileInFlight) return
+        setIsOpen(false)
+        openFileInFlight = true
+        pickAndOpenFile()
+          .catch(err => console.error('Open file failed:', err))
+          .finally(() => { openFileInFlight = false })
       }
     }
     window.addEventListener('keydown', onKeyDown)
