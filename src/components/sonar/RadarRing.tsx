@@ -83,15 +83,18 @@ export default function RadarRing({ children }: Props) {
       {/* Blips */}
       {children}
 
-      {/* Ring labels */}
-      <text x={CX + 2} y={CY - 88} fill="#00ff41" fillOpacity="0.25" fontSize="5" fontFamily="monospace">
-        100
+      {/* Band labels — blip distance from center encodes severity (see SonarPanel) */}
+      <text x={CX + 2} y={CY - 84} fill="#00ff41" fillOpacity="0.25" fontSize="5" fontFamily="monospace">
+        CRIT
       </text>
-      <text x={CX + 2} y={CY - 65} fill="#00ff41" fillOpacity="0.2" fontSize="5" fontFamily="monospace">
-        75
+      <text x={CX + 2} y={CY - 61} fill="#00ff41" fillOpacity="0.2" fontSize="5" fontFamily="monospace">
+        HIGH
       </text>
-      <text x={CX + 2} y={CY - 42} fill="#00ff41" fillOpacity="0.2" fontSize="5" fontFamily="monospace">
-        50
+      <text x={CX + 2} y={CY - 38} fill="#00ff41" fillOpacity="0.2" fontSize="5" fontFamily="monospace">
+        MED
+      </text>
+      <text x={CX + 2} y={CY - 16} fill="#00ff41" fillOpacity="0.2" fontSize="5" fontFamily="monospace">
+        LOW
       </text>
     </svg>
   )

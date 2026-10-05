@@ -18,7 +18,7 @@ export default function AnomalyBlip({ cx, cy, severity, isNew }: Props) {
         <circle
           cx={cx}
           cy={cy}
-          r={5}
+          r={4}
           fill="none"
           stroke={color}
           strokeWidth="1"
@@ -27,8 +27,8 @@ export default function AnomalyBlip({ cx, cy, severity, isNew }: Props) {
         />
       )}
       {/* Main blip */}
-      <circle cx={cx} cy={cy} r={3} fill={color} fillOpacity={0.9} />
-      <circle cx={cx} cy={cy} r={3} fill="none" stroke={color} strokeWidth="0.5" strokeOpacity={0.4} />
+      <circle cx={cx} cy={cy} r={2.2} fill={color} fillOpacity={0.9} />
+      <circle cx={cx} cy={cy} r={2.2} fill="none" stroke={color} strokeWidth="0.5" strokeOpacity={0.4} />
     </g>
   )
 }

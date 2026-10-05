@@ -15,12 +15,17 @@ export function useTauriEvents<T>(
 
   useEffect(() => {
     let unlisten: (() => void) | null = null
+    let disposed = false
 
     listen<T>(event, (e) => handlerRef.current(e.payload)).then((fn) => {
-      unlisten = fn
+      // listen() is async: if cleanup already ran (StrictMode double-mount, HMR),
+      // unsubscribe now — otherwise this listener leaks and every event fires twice.
+      if (disposed) fn()
+      else unlisten = fn
     })
 
     return () => {
+      disposed = true
       unlisten?.()
     }
   }, [event])
