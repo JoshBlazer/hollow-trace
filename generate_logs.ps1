@@ -146,7 +146,7 @@ function New-LogLine {
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-Write-Host "Generating $Lines lines → $Output ..."
+Write-Host "Generating $Lines lines -> $Output ..."
 
 $rng = [System.Random]::new(42)
 $dt  = [datetime]::new(2026, 5, 1, 0, 0, 0)

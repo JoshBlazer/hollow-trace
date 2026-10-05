@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { open as dialogOpen, save as dialogSave } from '@tauri-apps/plugin-dialog'
+import { save as dialogSave } from '@tauri-apps/plugin-dialog'
 import {
-  openFile,
-  startWatching,
   stopWatching,
   exportAnomalies,
   clearStream,
 } from '../../lib/tauri-commands'
+import { pickAndOpenFile, pickAndWatchFile } from '../../lib/file-actions'
 import CommandItem from './CommandItem'
 
 interface Command {
@@ -34,33 +33,13 @@ export default function CommandPalette({ onClose, onClearFrontend }: Props) {
       label: 'Open File',
       description: 'Parse an existing log file from start to finish',
       shortcut: 'Ctrl+O',
-      action: async () => {
-        const path = await dialogOpen({
-          multiple: false,
-          filters: [
-            { name: 'Log Files', extensions: ['log', 'txt', 'json', 'gz', 'out'] },
-            { name: 'All Files', extensions: ['*'] },
-          ],
-        })
-        if (!path || typeof path !== 'string') return
-        await openFile(path)
-      },
+      action: pickAndOpenFile,
     },
     {
       id: 'watch-file',
       label: 'Watch File',
       description: 'Tail a live log file for new entries',
-      action: async () => {
-        const path = await dialogOpen({
-          multiple: false,
-          filters: [
-            { name: 'Log Files', extensions: ['log', 'txt', 'json', 'gz', 'out'] },
-            { name: 'All Files', extensions: ['*'] },
-          ],
-        })
-        if (!path || typeof path !== 'string') return
-        await startWatching(path)
-      },
+      action: pickAndWatchFile,
     },
     {
       id: 'export',

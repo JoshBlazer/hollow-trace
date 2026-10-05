@@ -15,7 +15,7 @@ use crate::{
         types::{Anomaly, Severity},
         AnomalyDetector,
     },
-    events::{emit_batch, emit_stats, LogBatch, BATCH_SIZE, EMIT_INTERVAL_MS, STATS_INTERVAL_MS},
+    events::{emit_batch, emit_stats, LogBatch, BATCH_SIZE, FILE_BATCH_SIZE, EMIT_INTERVAL_MS, STATS_INTERVAL_MS},
     parser::{build_chain, detect_format, types::LogFormat, ParserChain},
     ring_buffer::RingBuffer,
     scorer::{calculate_threat_score, AppStats, IpCount, SeverityCounts},
@@ -34,6 +34,7 @@ struct LineProcessor {
     detector: AnomalyDetector,
     line_counter: u64,
     batch: LogBatch,
+    batch_size: usize,
     last_emit: Instant,
     last_stats: Instant,
     ip_counts: HashMap<String, u64>,
@@ -50,6 +51,7 @@ struct LineProcessor {
 impl LineProcessor {
     fn new(
         chain: ParserChain,
+        batch_size: usize,
         ring: Arc<RwLock<RingBuffer>>,
         anomalies_store: Arc<RwLock<Vec<Anomaly>>>,
         stats_store: Arc<RwLock<AppStats>>,
@@ -61,6 +63,7 @@ impl LineProcessor {
             detector: AnomalyDetector::new(0),
             line_counter: 0,
             batch: LogBatch::default(),
+            batch_size,
             last_emit: now,
             last_stats: now,
             ip_counts: HashMap::new(),
@@ -113,7 +116,7 @@ impl LineProcessor {
         self.batch.anomalies.extend(anomalies);
         self.batch.entries.push(entry);
 
-        if self.batch.entries.len() >= BATCH_SIZE || self.last_emit.elapsed() >= EMIT_INTERVAL {
+        if self.batch.entries.len() >= self.batch_size || self.last_emit.elapsed() >= EMIT_INTERVAL {
             self.flush_batch();
         }
     }
@@ -226,7 +229,8 @@ pub fn process_file(
     };
 
     let chain = build_chain(&detected_format);
-    let mut proc = LineProcessor::new(chain, ring, anomalies_store, stats_store, app.clone());
+    let mut proc =
+        LineProcessor::new(chain, FILE_BATCH_SIZE, ring, anomalies_store, stats_store, app.clone());
 
     let mut line = String::new();
     loop {
@@ -305,7 +309,8 @@ pub fn start_watching(
             return;
         }
 
-        let mut proc = LineProcessor::new(chain, ring, anomalies_store, stats_store, app);
+        let mut proc =
+            LineProcessor::new(chain, BATCH_SIZE, ring, anomalies_store, stats_store, app);
 
         loop {
             if stop_rx.try_recv().is_ok() {

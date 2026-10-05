@@ -212,7 +212,7 @@ def generate():
                           "/../", "whoami", "alert(", "169.254", "/.env",
                           "wp-config", "db.sql"]
     ))
-    print(f"Done: {len(buf):,} lines → {OUTPUT}")
+    print(f"Done: {len(buf):,} lines -> {OUTPUT}")
     print(f"Approx. {anomalies_approx:,} anomalous lines ({anomalies_approx/len(buf)*100:.1f}%)")
 
 
