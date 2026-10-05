@@ -1,6 +1,14 @@
-# Hollow Trace
+<p align="center">
+  <img src="src-tauri/icons/128x128@2x.png" alt="Hollow Trace icon: a green radar with a red anomaly blip" width="112">
+</p>
 
-A desktop forensics tool that scans server logs for attacks in real time. Open a log file or tail a live one, and Hollow Trace parses each line, flags anomalies, and shows them on a log stream, an anomaly radar, and a running threat score.
+<h1 align="center">Hollow Trace</h1>
+
+<p align="center">A desktop forensics tool that scans server logs for attacks in real time.</p>
+
+Open a log file or tail a live one, and Hollow Trace parses each line, flags anomalies, and shows them on a log stream, an anomaly radar, and a running threat score.
+
+![Hollow Trace with a 10,000-line test log loaded: the log stream on the left, the anomaly radar, threat score and recent alerts on the right](docs/screenshot.png)
 
 Built with Tauri 2: a Rust backend does all parsing and detection, and a React + TypeScript frontend displays the results.
 
