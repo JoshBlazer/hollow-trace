@@ -73,7 +73,7 @@ hollow-trace/
         ├── lib.rs
         ├── commands.rs
         ├── state.rs
-        ├── events.rs              <- batch: 50 entries / 100ms
+        ├── events.rs              <- batch: 50 entries (live) / 1000 (file load) / 100ms
         ├── ring_buffer.rs         <- VecDeque, 100k cap
         ├── scorer.rs              <- threat score 0-100
         ├── parser/                <- mod, types, apache, auth, json_log
@@ -137,6 +137,6 @@ notify-debouncer-mini = "0.7"
 - notify-debouncer-mini not notify RC: stable API, no RC risk
 - OS thread for watcher: notify is callback-based, async adds no benefit
 - parking_lot not std::sync: fair locking, no poisoning on panic
-- Batch events 50/100ms: prevents React re-rendering 10k times/sec
+- Batch events 50/100ms: prevents React re-rendering 10k times/sec. File loads use 1000/100ms: 50-entry batches meant ~200 IPC events + React renders per 10k lines (~60s load)
 - VariableSizeList: required for expandable row heights
 - serde camelCase: eliminates all manual field name mapping

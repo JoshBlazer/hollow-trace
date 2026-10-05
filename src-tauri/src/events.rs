@@ -4,6 +4,9 @@ use tauri::Emitter;
 use crate::{detector::types::Anomaly, parser::types::LogEntry, scorer::AppStats};
 
 pub const BATCH_SIZE: usize = 50;
+/// Batch size when parsing a whole file: the 100ms interval still bounds latency,
+/// but fewer, larger events keep the webview from re-rendering hundreds of times.
+pub const FILE_BATCH_SIZE: usize = 1_000;
 pub const EMIT_INTERVAL_MS: u64 = 100;
 pub const STATS_INTERVAL_MS: u64 = 500;
 
