@@ -7,7 +7,7 @@ in real-time. Rust backend handles all parsing and detection. React frontend is 
 ## Tech Stack
 - Desktop: Tauri 2.0
 - Backend: Rust (stable 1.86)
-- Frontend: React 18 + TypeScript
+- Frontend: React 19 + TypeScript
 - Styling: Tailwind CSS v3 (NOT v4)
 - Font: JetBrains Mono everywhere, no exceptions
 - Virtualization: react-window VariableSizeList (not FixedSizeList)
@@ -43,12 +43,12 @@ hollow-trace/
 ├── vite.config.ts
 ├── tsconfig.json
 ├── tailwind.config.ts
-├── postcss.config.cjs
+├── postcss.config.js
 ├── index.html
 ├── src/
 │   ├── main.tsx
 │   ├── App.tsx
-│   ├── index.css
+│   ├── App.css
 │   ├── types/hollow.ts            <- ALL shared types, mirror of Rust structs
 │   ├── hooks/
 │   │   ├── useTauriEvents.ts
