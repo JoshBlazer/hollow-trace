@@ -6,6 +6,7 @@ import {
   clearStream,
 } from '../../lib/tauri-commands'
 import { pickAndOpenFile, pickAndWatchFile } from '../../lib/file-actions'
+import { errorMessage, notify, reportError } from '../../lib/notify'
 import CommandItem from './CommandItem'
 
 interface Command {
@@ -19,9 +20,10 @@ interface Command {
 interface Props {
   onClose: () => void
   onClearFrontend: () => void
+  onOpenSettings: () => void
 }
 
-export default function CommandPalette({ onClose, onClearFrontend }: Props) {
+export default function CommandPalette({ onClose, onClearFrontend, onOpenSettings }: Props) {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [status, setStatus] = useState<'idle' | 'running' | string>('idle')
@@ -51,7 +53,8 @@ export default function CommandPalette({ onClose, onClearFrontend }: Props) {
           filters: [{ name: 'JSON', extensions: ['json'] }],
         })
         if (!path || typeof path !== 'string') return
-        await exportAnomalies(path)
+        const count = await exportAnomalies(path)
+        notify('success', `Exported ${count} ${count === 1 ? 'anomaly' : 'anomalies'} to ${path}`)
       },
     },
     {
@@ -71,7 +74,15 @@ export default function CommandPalette({ onClose, onClearFrontend }: Props) {
         onClearFrontend()
       },
     },
-  ], [onClearFrontend])
+    {
+      id: 'settings',
+      label: 'Detection Settings',
+      description: 'Thresholds and IP allowlist',
+      action: async () => {
+        onOpenSettings()
+      },
+    },
+  ], [onClearFrontend, onOpenSettings])
 
   const filtered = useMemo(
     () =>
@@ -121,7 +132,9 @@ export default function CommandPalette({ onClose, onClearFrontend }: Props) {
       await cmd.action()
       onClose()
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err))
+      // Shown inline below; also written to the log file
+      reportError(cmd.label, err, { toast: false })
+      setStatus(errorMessage(err))
     }
   }
 
