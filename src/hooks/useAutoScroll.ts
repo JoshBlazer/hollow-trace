@@ -1,7 +1,8 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import type { VariableSizeList } from 'react-window'
 
-export function useAutoScroll(entryCount: number) {
+/** Keeps the list pinned to the newest entry while `enabled` (live view) and not paused. */
+export function useAutoScroll(entryCount: number, enabled = true) {
   const listRef = useRef<VariableSizeList>(null)
   const [isPaused, setIsPaused] = useState(false)
 
@@ -12,10 +13,10 @@ export function useAutoScroll(entryCount: number) {
 
   // Auto-scroll whenever new entries arrive and we're not paused
   useEffect(() => {
-    if (!isPausedRef.current && entryCount > 0) {
+    if (enabled && !isPausedRef.current && entryCount > 0) {
       listRef.current?.scrollToItem(entryCount - 1, 'end')
     }
-  }, [entryCount])
+  }, [entryCount, enabled])
 
   const togglePause = useCallback(() => {
     const next = !isPausedRef.current

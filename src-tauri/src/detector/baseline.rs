@@ -90,6 +90,7 @@ impl BaselineDetector {
                     stddev,
                 },
                 severity: Severity::Medium,
+                source_ip: None,
                 description: format!(
                     "Response size {:.0}B is {:.1}σ from baseline ({:.0}B avg)",
                     bytes, sigma_dist, mean,
@@ -121,6 +122,7 @@ mod tests {
             level: LogLevel::Info,
             is_anomaly: false,
             anomaly_id: None,
+            anomaly_severity: None,
         }
     }
 

@@ -34,10 +34,14 @@ interface Props {
   /** Changes when a new stream starts */
   session: number
   onClear: () => void
+  /** Live view follows new lines; search results and jump context don't */
+  live?: boolean
+  /** Entry to scroll to and expand (jump-to-line) */
+  focusId?: number | null
 }
 
-export default function LogStreamPanel({ entries, session, onClear }: Props) {
-  const { listRef, isPaused, togglePause } = useAutoScroll(entries.length)
+export default function LogStreamPanel({ entries, session, onClear, live = true, focusId = null }: Props) {
+  const { listRef, isPaused, togglePause } = useAutoScroll(entries.length, live)
 
   const [expandedId, setExpandedId] = useState<number | null>(null)
 
@@ -46,6 +50,18 @@ export default function LogStreamPanel({ entries, session, onClear }: Props) {
     setExpandedId(null)
     listRef.current?.resetAfterIndex(0, false)
   }, [session, listRef])
+
+  // Jump-to-line: expand the target and center it once it's in the list
+  useEffect(() => {
+    if (focusId === null) return
+    const idx = entries.findIndex(e => e.id === focusId)
+    if (idx === -1) return
+    setExpandedId(focusId)
+    requestAnimationFrame(() => {
+      listRef.current?.resetAfterIndex(0, false)
+      listRef.current?.scrollToItem(idx, 'center')
+    })
+  }, [focusId, entries, listRef])
 
   // Container ref for ResizeObserver
   const containerRef = useRef<HTMLDivElement>(null)
@@ -111,9 +127,9 @@ export default function LogStreamPanel({ entries, session, onClear }: Props) {
         </VariableSizeList>
       )}
 
-      {/* Controls — bottom-right */}
+      {/* Controls — bottom-right (pause only applies to the live view) */}
       <div className="absolute bottom-2 right-2 flex gap-2">
-        <button
+        {live && <button
           onClick={togglePause}
           className={[
             'text-[10px] tracking-widest px-2 py-1 border transition-colors duration-150',
@@ -123,7 +139,7 @@ export default function LogStreamPanel({ entries, session, onClear }: Props) {
           ].join(' ')}
         >
           {isPaused ? '▶ RESUME' : '‖ PAUSE'}
-        </button>
+        </button>}
         <button
           onClick={onClear}
           className="text-[10px] tracking-widest px-2 py-1 border border-neon/20 text-neon/30 hover:border-neon/60 hover:text-neon/60 transition-colors duration-150"

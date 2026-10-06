@@ -69,6 +69,10 @@ impl AnomalyDetector {
             anomalies.push(a);
         }
 
+        for a in &mut anomalies {
+            a.source_ip = entry.ip.clone();
+        }
+
         anomalies
     }
 
@@ -99,6 +103,7 @@ mod tests {
             level: LogLevel::Warn,
             is_anomaly: false,
             anomaly_id: None,
+            anomaly_severity: None,
         }
     }
 

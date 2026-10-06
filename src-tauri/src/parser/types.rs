@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::detector::types::Severity;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum LogFormat {
@@ -41,4 +43,7 @@ pub struct LogEntry {
     pub level: LogLevel,
     pub is_anomaly: bool,
     pub anomaly_id: Option<u64>,
+    /// Highest severity among this line's anomalies (None if clean)
+    #[serde(default)]
+    pub anomaly_severity: Option<Severity>,
 }

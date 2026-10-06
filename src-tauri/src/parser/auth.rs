@@ -13,9 +13,6 @@ static AUTH_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^(\w{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})\s+\S+\s+\S+[:\s]+(.+)$").unwrap()
 });
 
-static IP_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b").unwrap()
-});
 
 pub struct AuthParser;
 
@@ -31,10 +28,7 @@ impl Parser for AuthParser {
         let month = month_to_num(month_str)?;
         let timestamp = syslog_timestamp(month, day, time_str, Utc::now().timestamp_millis());
 
-        let ip = IP_RE
-            .captures(&message)
-            .and_then(|c| c.get(1))
-            .map(|m| m.as_str().to_string());
+        let ip = extract_ip(&message);
 
         let lower = message.to_lowercase();
         let level = if lower.contains("fail")
@@ -63,8 +57,31 @@ impl Parser for AuthParser {
             level,
             is_anomaly: false,
             anomaly_id: None,
+            anomaly_severity: None,
         })
     }
+}
+
+/// First IPv4 or IPv6 address in a syslog message: handles "from 2001:db8::1 port 22",
+/// "rhost=203.0.113.5", "[2001:db8::1]:22" and "203.0.113.5:22".
+fn extract_ip(message: &str) -> Option<String> {
+    message
+        .split(|c: char| c.is_whitespace() || c == '=' || c == ',' || c == ';')
+        .find_map(|token| {
+            let t = token.trim_matches(|c: char| matches!(c, '(' | ')' | '\'' | '"' | '.' | '<' | '>'));
+            // [v6]:port or [v6]
+            let t = match t.strip_prefix('[') {
+                Some(rest) => rest.split(']').next().unwrap_or(rest),
+                None => t,
+            };
+            if let Ok(ip) = t.parse::<std::net::IpAddr>() {
+                return Some(ip.to_string());
+            }
+            // v4:port
+            let (host, port) = t.rsplit_once(':')?;
+            port.parse::<u16>().ok()?;
+            host.parse::<std::net::Ipv4Addr>().ok().map(|ip| ip.to_string())
+        })
 }
 
 /// RFC 3164 timestamps have no year. Assume the current year, unless that puts the line
@@ -124,6 +141,23 @@ mod tests {
         assert_eq!(ok.ip, None);
         let refused = AuthParser.try_parse("Oct  5 09:00:01 web01 sshd[2]: Connection refused by 10.0.0.9", 1).unwrap();
         assert!(matches!(refused.level, LogLevel::Warn));
+    }
+
+    #[test]
+    fn extracts_ipv6_and_other_ip_forms() {
+        let cases = [
+            ("Failed password for root from 2001:db8::1 port 22 ssh2", Some("2001:db8::1")),
+            ("pam_unix(sshd:auth): authentication failure; logname= uid=0 rhost=203.0.113.5  user=root", Some("203.0.113.5")),
+            ("Connection closed by [2001:db8::42]:51000", Some("2001:db8::42")),
+            ("Did not receive identification string from 198.51.100.3:4422", Some("198.51.100.3")),
+            ("Accepted publickey for deploy from 10.0.0.9.", Some("10.0.0.9")),
+            ("session opened for user root by (uid=0)", None),
+        ];
+        for (msg, want) in cases {
+            assert_eq!(extract_ip(msg).as_deref(), want, "{msg}");
+        }
+        let line = "Oct  5 09:00:01 web01 sshd[2]: Failed password for invalid user x from 2001:db8::1 port 22 ssh2";
+        assert_eq!(AuthParser.try_parse(line, 1).unwrap().ip.as_deref(), Some("2001:db8::1"));
     }
 
     #[test]

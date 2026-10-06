@@ -101,6 +101,7 @@ impl RateDetector {
                 window_secs: (window_ms / 1000) as u32,
             },
             severity: Severity::High,
+            source_ip: None,
             description: format!(
                 "Rate burst from {}: {} failures in {}s — possible brute force or scan",
                 ip,
@@ -131,6 +132,7 @@ mod tests {
             level: LogLevel::Info,
             is_anomaly: false,
             anomaly_id: None,
+            anomaly_severity: None,
         }
     }
 

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Hollow Trace",
-  "version": "0.2.0",
-  "identifier": "dev.hollowtrace.app",
+  "version": "0.3.0",
+  "identifier": "dev.hollowtrace.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -40,7 +40,10 @@
       },
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
-      "timestampUrl": "http://timestamp.digicert.com"
+      "timestampUrl": "http://timestamp.digicert.com",
+      "wix": {
+        "upgradeCode": "32DAAA1F-EB23-46FD-8145-090A017C0430"
+      }
     }
   },
   "plugins": {

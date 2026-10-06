@@ -64,6 +64,8 @@ struct LineProcessor<S: EventSink> {
     anomaly_count: u64,
     lines_in_period: u64,
     period_start: Instant,
+    first_ts: Option<i64>,
+    last_ts: Option<i64>,
     stores: Stores,
     sink: S,
 }
@@ -92,6 +94,8 @@ impl<S: EventSink> LineProcessor<S> {
             anomaly_count: 0,
             lines_in_period: 0,
             period_start: now,
+            first_ts: None,
+            last_ts: None,
             stores,
             sink,
         }
@@ -111,9 +115,13 @@ impl<S: EventSink> LineProcessor<S> {
 
         let anomalies = self.detector.check_all(&entry);
 
+        self.first_ts = Some(self.first_ts.map_or(entry.timestamp, |t| t.min(entry.timestamp)));
+        self.last_ts = Some(self.last_ts.map_or(entry.timestamp, |t| t.max(entry.timestamp)));
+
         if !anomalies.is_empty() {
             entry.is_anomaly = true;
             entry.anomaly_id = Some(anomalies[0].id);
+            entry.anomaly_severity = anomalies.iter().map(|a| a.severity).max();
             self.anomaly_count += anomalies.len() as u64;
 
             for a in &anomalies {
@@ -201,6 +209,8 @@ impl<S: EventSink> LineProcessor<S> {
         g.parse_rate = parse_rate;
         g.top_ips = self.top_ips();
         g.severity_counts = self.severity_counts.clone();
+        g.first_timestamp = self.first_ts;
+        g.last_timestamp = self.last_ts;
         g.threat_score = calculate_threat_score(&g);
         g.clone()
     }

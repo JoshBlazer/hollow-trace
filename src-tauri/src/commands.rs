@@ -6,6 +6,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::{
     detector::types::{Anomaly, Severity},
     parser::types::LogFormat,
+    query::{EntryFilter, EntryQueryResult},
+    report::{AnomalyGroup, GroupBy, ReportInput},
     scorer::AppStats,
     settings::DetectionSettings,
     state::{AppState, WatcherHandle},
@@ -22,7 +24,8 @@ fn stop_watcher(watcher: &Arc<std::sync::Mutex<Option<WatcherHandle>>>) {
 }
 
 /// Clears backend state and tells the frontend to drop what it's showing.
-fn reset_state(state: &AppState, app: &AppHandle) {
+fn reset_state(state: &AppState, app: &AppHandle, source: Option<String>) {
+    *state.source.write() = source;
     state.ring_buffer.write().clear();
     state.anomalies.write().clear();
     *state.stats.write() = AppStats::default();
@@ -39,12 +42,19 @@ fn filter_anomalies(all: &[Anomaly], severity_filter: Option<&str>) -> Vec<Anoma
     }
 }
 
-/// Writes anomalies (optionally filtered by severity) to `output_path` as pretty JSON.
-/// Returns how many were written.
+/// Writes anomalies (optionally filtered by severity) to `output_path`: CSV if the path
+/// ends in `.csv`, otherwise pretty JSON. Returns how many were written.
 pub fn write_anomalies(all: &[Anomaly], severity_filter: Option<&str>, output_path: &Path) -> Result<usize, String> {
     let filtered = filter_anomalies(all, severity_filter);
-    let json = serde_json::to_string_pretty(&filtered).map_err(|e| format!("Serialize error: {e}"))?;
-    std::fs::write(output_path, json)
+    let is_csv = output_path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("csv"));
+    let body = if is_csv {
+        crate::report::anomalies_csv(&filtered)
+    } else {
+        serde_json::to_string_pretty(&filtered).map_err(|e| format!("Serialize error: {e}"))?
+    };
+    std::fs::write(output_path, body)
         .map_err(|e| format!("Cannot write '{}': {e}", output_path.display()))?;
     Ok(filtered.len())
 }
@@ -67,7 +77,7 @@ pub async fn open_file(
     // Fail before touching anything, so a bad pick keeps the current view
     crate::watcher::check_readable(&path)?;
     stop_watcher(&state.watcher);
-    reset_state(&state, &app);
+    reset_state(&state, &app, Some(path.clone()));
 
     let stores = state.stores();
     let settings = state.settings.read().clone();
@@ -95,7 +105,7 @@ pub fn start_watching(
     // All setup (open, gzip check, OS watcher) first: a failure keeps the current view
     let prepared = crate::watcher::prepare_watch(path.clone(), format)?;
     stop_watcher(&state.watcher);
-    reset_state(&state, &app);
+    reset_state(&state, &app, Some(path.clone()));
 
     let settings = state.settings.read().clone();
     let handle = prepared.spawn(&settings, state.stores(), app);
@@ -149,7 +159,7 @@ pub async fn export_anomalies(
 #[tauri::command]
 pub fn clear_stream(state: tauri::State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     stop_watcher(&state.watcher);
-    reset_state(&state, &app);
+    reset_state(&state, &app, None);
     Ok(())
 }
 
@@ -172,6 +182,53 @@ pub fn save_settings(
     Ok(())
 }
 
+/// Search the backend buffer (up to 100k lines), or fetch context around a line.
+#[tauri::command]
+pub fn query_entries(filter: EntryFilter, state: tauri::State<'_, AppState>) -> Result<EntryQueryResult, String> {
+    let ring = state.ring_buffer.read();
+    Ok(crate::query::query(ring.iter(), &filter))
+}
+
+/// Anomalies grouped by source IP or attack type, most severe first.
+#[tauri::command]
+pub fn anomaly_groups(group_by: GroupBy, state: tauri::State<'_, AppState>) -> Result<Vec<AnomalyGroup>, String> {
+    Ok(crate::report::summarize(&state.anomalies.read(), group_by))
+}
+
+/// The newest anomalies in one group (max 500).
+#[tauri::command]
+pub fn group_anomalies(group_by: GroupBy, key: String, state: tauri::State<'_, AppState>) -> Result<Vec<Anomaly>, String> {
+    Ok(crate::report::group_members(&state.anomalies.read(), group_by, &key, 500))
+}
+
+/// Writes a Markdown incident report for the current file to `output_path`.
+#[tauri::command]
+pub async fn export_report(
+    output_path: String,
+    state: tauri::State<'_, AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let anomalies = state.anomalies.read().clone();
+    let stats = state.stats.read().clone();
+    let source = state.source.read().clone();
+    let version = app.package_info().version.to_string();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let md = crate::report::markdown_report(&ReportInput {
+            source: source.as_deref(),
+            stats: &stats,
+            anomalies: &anomalies,
+            generated_at: chrono::Utc::now().timestamp_millis(),
+            app_version: &version,
+        });
+        std::fs::write(&output_path, md).map_err(|e| format!("Cannot write '{output_path}': {e}"))?;
+        log::info!("Wrote report '{output_path}'");
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Spawn error: {e}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +241,7 @@ mod tests {
             timestamp: 0,
             kind: AnomalyKind::PatternMatch { pattern_name: "xss_attempt".into() },
             severity,
+            source_ip: None,
             description: "XSS from 203.0.113.9: GET /x".into(),
         }
     }
@@ -202,6 +260,16 @@ mod tests {
         assert!(text.contains("\"entryId\"") && text.contains("\"type\": \"patternMatch\""), "{text}");
 
         assert_eq!(write_anomalies(&all, None, &path).unwrap(), 3);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn export_picks_csv_by_extension() {
+        let all = vec![anomaly(1, Severity::High)];
+        let path = std::env::temp_dir().join(format!("ht-export-{}.CSV", std::process::id()));
+        assert_eq!(write_anomalies(&all, None, &path).unwrap(), 1);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("timestamp,severity,category,source_ip"), "{text}");
         let _ = std::fs::remove_file(path);
     }
 

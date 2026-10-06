@@ -24,6 +24,8 @@ export interface LogEntry {
   level: LogLevel;
   isAnomaly: boolean;
   anomalyId: number | null;
+  /** Worst severity among this line's anomalies */
+  anomalySeverity: Severity | null;
 }
 
 // ── Anomaly detection ─────────────────────────────────────────────────────────
@@ -46,6 +48,7 @@ export interface Anomaly {
   kind: AnomalyKind;
   severity: Severity;
   description: string;
+  sourceIp: string | null;
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
@@ -69,6 +72,8 @@ export interface AppStats {
   threatScore: number;     // 0-100
   topIps: IpCount[];
   severityCounts: SeverityCounts;
+  firstTimestamp: number | null;  // Unix ms
+  lastTimestamp: number | null;
 }
 
 // ── Event payloads ────────────────────────────────────────────────────────────
@@ -87,6 +92,42 @@ export type StreamResetPayload = null;
 
 /** Payload of the "app_error" Tauri event: a background failure to show the user */
 export type AppErrorPayload = string;
+
+// ── Search ────────────────────────────────────────────────────────────────────
+
+/** Mirror of Rust EntryFilter. Empty/undefined fields don't filter. */
+export interface EntryFilter {
+  text?: string;
+  ip?: string;             // exact IP, CIDR, or substring
+  minSeverity?: Severity;
+  anomaliesOnly?: boolean;
+  statusClass?: 2 | 3 | 4 | 5;
+  /** Jump-to-line: lines around this entry id; other fields ignored */
+  around?: number;
+  limit?: number;
+}
+
+export interface EntryQueryResult {
+  entries: LogEntry[];
+  matched: number;   // total matches, may exceed entries.length
+  scanned: number;   // lines searched in the backend buffer
+}
+
+// ── Anomaly grouping ──────────────────────────────────────────────────────────
+
+export type GroupBy = 'sourceIp' | 'category';
+
+export interface AnomalyGroup {
+  key: string;            // source IP ("unknown") or category
+  count: number;
+  maxSeverity: Severity;
+  firstSeen: number;      // Unix ms
+  lastSeen: number;
+  distinct: number;       // distinct categories (IP groups) or sources (category groups)
+}
+
+/** Which main panel is showing */
+export type MainView = 'stream' | 'anomalies';
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 
@@ -125,4 +166,6 @@ export const DEFAULT_STATS: AppStats = {
   threatScore: 0,
   topIps: [],
   severityCounts: { low: 0, medium: 0, high: 0, critical: 0 },
+  firstTimestamp: null,
+  lastTimestamp: null,
 };
