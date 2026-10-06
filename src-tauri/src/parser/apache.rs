@@ -65,6 +65,7 @@ impl Parser for ApacheParser {
             level,
             is_anomaly: false,
             anomaly_id: None,
+            anomaly_severity: None,
         })
     }
 }

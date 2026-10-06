@@ -21,6 +21,8 @@ pub struct AppState {
     pub watcher: Arc<Mutex<Option<WatcherHandle>>>,
     pub current_format: Arc<Mutex<LogFormat>>,
     pub settings: Arc<RwLock<DetectionSettings>>,
+    /// Path of the file being shown (for reports)
+    pub source: Arc<RwLock<Option<String>>>,
 }
 
 impl AppState {
@@ -50,6 +52,7 @@ impl Default for AppState {
             watcher: Arc::new(Mutex::new(None)),
             current_format: Arc::new(Mutex::new(LogFormat::Apache)),
             settings: Arc::new(RwLock::new(DetectionSettings::default())),
+            source: Arc::new(RwLock::new(None)),
         }
     }
 }

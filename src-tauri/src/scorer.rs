@@ -25,6 +25,9 @@ pub struct AppStats {
     pub threat_score: u8,
     pub top_ips: Vec<IpCount>,
     pub severity_counts: SeverityCounts,
+    /// Earliest / latest log timestamp seen (Unix ms)
+    pub first_timestamp: Option<i64>,
+    pub last_timestamp: Option<i64>,
 }
 
 pub fn calculate_threat_score(stats: &AppStats) -> u8 {

@@ -110,11 +110,11 @@ Errors appear as notifications at the bottom of the window. Examples: a file can
 | Baseline sigma | 3 | Standard deviations from the mean response size before flagging |
 | Allowlist | empty | IPs or CIDR ranges (IPv4 or IPv6) that are never flagged, such as your own scanners or office VPN |
 
-Settings are saved to `%APPDATA%\dev.hollowtrace.app\settings.json` on Windows. They apply to the next Open File or Watch File.
+Settings are saved to `%APPDATA%\dev.hollowtrace.desktop\settings.json` on Windows. They apply to the next Open File or Watch File.
 
 ### Logs
 
-The app writes a rotating log file (5 × 5 MB) to `%LOCALAPPDATA%\dev.hollowtrace.app\logs\` on Windows. Include it when reporting a problem.
+The app writes a rotating log file (5 × 5 MB) to `%LOCALAPPDATA%\dev.hollowtrace.desktop\logs\` on Windows. Include it when reporting a problem.
 
 ### Long-running tails
 

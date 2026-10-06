@@ -165,6 +165,7 @@ pub fn check_patterns(entry: &LogEntry) -> Option<Anomaly> {
                 pattern_name: p.name.to_string(),
             },
             severity: p.severity,
+            source_ip: None,
             description: format!("{} from {who}: {what}", p.label),
         })
     })
@@ -190,6 +191,7 @@ mod tests {
             level: LogLevel::Info,
             is_anomaly: false,
             anomaly_id: None,
+            anomaly_severity: None,
         }
     }
 

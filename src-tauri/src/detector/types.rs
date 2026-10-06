@@ -40,4 +40,18 @@ pub struct Anomaly {
     pub kind: AnomalyKind,
     pub severity: Severity,
     pub description: String,
+    /// IP of the offending log line, if it had one
+    #[serde(default)]
+    pub source_ip: Option<String>,
+}
+
+impl Anomaly {
+    /// Stable attack-type key for grouping: pattern name, "rate_burst" or "response_size".
+    pub fn category(&self) -> &str {
+        match &self.kind {
+            AnomalyKind::PatternMatch { pattern_name } => pattern_name,
+            AnomalyKind::RateBurst { .. } => "rate_burst",
+            AnomalyKind::StatisticalDeviation { .. } => "response_size",
+        }
+    }
 }
