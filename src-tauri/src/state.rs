@@ -6,6 +6,8 @@ use crate::{
     parser::types::LogFormat,
     ring_buffer::RingBuffer,
     scorer::AppStats,
+    settings::DetectionSettings,
+    watcher::Stores,
 };
 
 pub struct WatcherHandle {
@@ -18,6 +20,25 @@ pub struct AppState {
     pub anomalies: Arc<RwLock<Vec<Anomaly>>>,
     pub watcher: Arc<Mutex<Option<WatcherHandle>>>,
     pub current_format: Arc<Mutex<LogFormat>>,
+    pub settings: Arc<RwLock<DetectionSettings>>,
+}
+
+impl AppState {
+    pub fn with_settings(settings: DetectionSettings) -> Self {
+        Self {
+            settings: Arc::new(RwLock::new(settings)),
+            ..Self::default()
+        }
+    }
+
+    /// The shared stores a parsing session writes into.
+    pub fn stores(&self) -> Stores {
+        Stores {
+            ring: Arc::clone(&self.ring_buffer),
+            anomalies: Arc::clone(&self.anomalies),
+            stats: Arc::clone(&self.stats),
+        }
+    }
 }
 
 impl Default for AppState {
@@ -28,6 +49,7 @@ impl Default for AppState {
             anomalies: Arc::new(RwLock::new(Vec::new())),
             watcher: Arc::new(Mutex::new(None)),
             current_format: Arc::new(Mutex::new(LogFormat::Apache)),
+            settings: Arc::new(RwLock::new(DetectionSettings::default())),
         }
     }
 }

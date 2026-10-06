@@ -34,6 +34,8 @@ in real-time. Rust backend handles all parsing and detection. React frontend is 
 - [x] Phase 10 — Stats Bar
 - [x] Phase 11 — Command Palette
 - [x] Phase 12 — Integration + error boundaries
+- [x] v0.2.0 — Hardening: tests + CI, least-privilege capabilities + CSP, memory caps, gzip,
+      visible errors + log file, detection settings/allowlist, release pipeline + auto-update
 
 ## Project Structure
 ```
@@ -73,7 +75,8 @@ hollow-trace/
         ├── lib.rs
         ├── commands.rs
         ├── state.rs
-        ├── events.rs              <- batch: 50 entries (live) / 1000 (file load) / 100ms
+        ├── events.rs              <- EventSink trait; batch: 50 entries (live) / 1000 (file load) / 100ms
+        ├── settings.rs            <- DetectionSettings + IP/CIDR allowlist, persisted as JSON
         ├── ring_buffer.rs         <- VecDeque, 100k cap
         ├── scorer.rs              <- threat score 0-100
         ├── parser/                <- mod, types, apache, auth, json_log
@@ -89,12 +92,19 @@ hollow-trace/
 - Watcher runs on a dedicated OS thread, not async
 - parking_lot::RwLock everywhere (fair, no panic poisoning)
 - Parsers are pure functions — no I/O, no side effects
+- Watcher code emits through `EventSink` (AppHandle in the app, RecordingSink in tests) — never call `app.emit` directly from watcher/detector code
+- Use `log::` macros, not eprintln! (tauri-plugin-log writes the app log file)
+- Every module with logic has `#[cfg(test)]` tests; run `cargo test --lib`
+- Long-lived collections must be bounded (see MAX_STORED_ANOMALIES, MAX_TRACKED_IPS, rate sweep)
 
 ## Pinned Crates
 ```toml
 tauri                 = "2.11"
 tauri-plugin-dialog   = "2.7"
-tauri-plugin-fs       = "2.5"
+tauri-plugin-log      = "2"
+tauri-plugin-updater  = "2"
+tauri-plugin-process  = "2"
+flate2                = "1"     # gzip logs
 serde                 = { version = "1.0", features = ["derive"] }
 serde_json            = "1.0"
 chrono                = { version = "0.4", features = ["serde"] }
@@ -114,6 +124,8 @@ notify-debouncer-mini = "0.7"
 - LogRow must be React.memo
 - After toggling row expand: call listRef.current?.resetAfterIndex(index)
 - useLogBuffer caps at 10,000 entries — backend is source of truth for export
+- User-facing errors go through `reportError`/`notify` in src/lib/notify.ts (toast + log file), never console.error alone
+- Frontend tests: Vitest (`npm test`); `npm run build` type-checks test files too
 - Never import D3. Never use Canvas for sonar.
 
 ## CSS Rules
@@ -132,6 +144,9 @@ notify-debouncer-mini = "0.7"
 - Don't call invoke() with raw string names
 - Don't define types outside hollow.ts
 - Don't use D3 or Canvas
+- Don't load anything from the network at runtime (fonts are bundled via @fontsource); keep the CSP strict
+- Don't grant the webview fs permissions — file I/O belongs in Rust commands
+- Don't put createUpdaterArtifacts in tauri.conf.json — it lives in tauri.release.conf.json so local builds don't need the signing key
 
 ## Key Decisions (don't revisit without flagging)
 - notify-debouncer-mini not notify RC: stable API, no RC risk
@@ -140,3 +155,6 @@ notify-debouncer-mini = "0.7"
 - Batch events 50/100ms: prevents React re-rendering 10k times/sec. File loads use 1000/100ms: 50-entry batches meant ~200 IPC events + React renders per 10k lines (~60s load)
 - VariableSizeList: required for expandable row heights
 - serde camelCase: eliminates all manual field name mapping
+- Removed tauri-plugin-fs (v0.2.0): the frontend never used it, and it granted the webview read/write on the whole home dir
+- Single auth failures are Low; repeated failures from one IP are a High rate burst (rate detector counts 4xx and failed logins)
+- Releases: tag vX.Y.Z -> draft GitHub Release with signed updater bundles; publishing the draft ships the update

@@ -68,3 +68,37 @@ impl Parser for ApacheParser {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_combined_log_line() {
+        let line = r#"203.0.113.5 - - [01/May/2026:10:20:30 +0000] "POST /login?next=%2F HTTP/1.1" 401 512 "-" "curl/8.4.0""#;
+        let e = ApacheParser.try_parse(line, 3).unwrap();
+        assert_eq!(e.ip.as_deref(), Some("203.0.113.5"));
+        assert_eq!(e.method.as_deref(), Some("POST"));
+        assert_eq!(e.path.as_deref(), Some("/login?next=%2F"));
+        assert_eq!(e.status_code, Some(401));
+        assert_eq!(e.bytes, Some(512));
+        assert!(matches!(e.level, LogLevel::Warn));
+        assert_eq!(e.timestamp, 1_777_630_830_000);
+        assert_eq!(e.raw, line);
+    }
+
+    #[test]
+    fn handles_dash_bytes_and_5xx() {
+        let line = r#"::1 - user [01/May/2026:10:20:30 -0500] "GET / HTTP/2.0" 503 - "-" "-""#;
+        let e = ApacheParser.try_parse(line, 1).unwrap();
+        assert_eq!(e.ip.as_deref(), Some("::1"));
+        assert_eq!(e.bytes, None);
+        assert!(matches!(e.level, LogLevel::Error));
+    }
+
+    #[test]
+    fn rejects_non_access_log_lines() {
+        assert!(ApacheParser.try_parse("May  4 22:08:26 host sshd[1]: hello", 1).is_none());
+        assert!(ApacheParser.try_parse("", 1).is_none());
+    }
+}

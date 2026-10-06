@@ -82,6 +82,40 @@ export type AnomalyPayload = Anomaly[];
 /** Payload of the "stats_update" Tauri event */
 export type StatsPayload = AppStats;
 
+/** Payload of the "stream_reset" Tauri event: a new Open/Watch/Clear started; drop what's shown */
+export type StreamResetPayload = null;
+
+/** Payload of the "app_error" Tauri event: a background failure to show the user */
+export type AppErrorPayload = string;
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+/** Mirror of Rust DetectionSettings. Applies to the next Open File / Watch File. */
+export interface DetectionSettings {
+  rateThreshold: number;   // failures from one IP within the window
+  rateWindowSecs: number;
+  baselineSigma: number;   // std devs from mean response size
+  allowlist: string[];     // IPs or CIDRs never flagged
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+export type ToastKind = 'error' | 'info' | 'success';
+
+export interface ToastAction {
+  label: string;
+  run: () => Promise<void> | void;
+}
+
+export interface Toast {
+  id: number;
+  kind: ToastKind;
+  message: string;
+  action?: ToastAction;
+  /** Stays until dismissed instead of timing out */
+  sticky?: boolean;
+}
+
 // ── Default values ────────────────────────────────────────────────────────────
 
 export const DEFAULT_STATS: AppStats = {

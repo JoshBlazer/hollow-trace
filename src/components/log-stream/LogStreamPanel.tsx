@@ -31,13 +31,21 @@ function Row({ index, style, data }: ListChildComponentProps<ItemData>) {
 
 interface Props {
   entries: LogEntry[]
+  /** Changes when a new stream starts */
+  session: number
   onClear: () => void
 }
 
-export default function LogStreamPanel({ entries, onClear }: Props) {
+export default function LogStreamPanel({ entries, session, onClear }: Props) {
   const { listRef, isPaused, togglePause } = useAutoScroll(entries.length)
 
   const [expandedId, setExpandedId] = useState<number | null>(null)
+
+  // Ids restart with each stream; an old expanded id would expand an unrelated row
+  useEffect(() => {
+    setExpandedId(null)
+    listRef.current?.resetAfterIndex(0, false)
+  }, [session, listRef])
 
   // Container ref for ResizeObserver
   const containerRef = useRef<HTMLDivElement>(null)

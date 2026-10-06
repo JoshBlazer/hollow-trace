@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { pickAndOpenFile } from '../lib/file-actions'
+import { reportError } from '../lib/notify'
 
 // Module-level so a held/repeated Ctrl+O can't stack dialogs while one is open
 let openFileInFlight = false
@@ -20,7 +21,7 @@ export function useCommandPalette() {
         setIsOpen(false)
         openFileInFlight = true
         pickAndOpenFile()
-          .catch(err => console.error('Open file failed:', err))
+          .catch(err => reportError('Open file failed', err))
           .finally(() => { openFileInFlight = false })
       }
     }

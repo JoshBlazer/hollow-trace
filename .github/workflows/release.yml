@@ -1,0 +1,61 @@
+name: Release
+
+# Push a tag like v0.2.0 to build signed installers and the updater manifest into a
+# DRAFT GitHub Release. Nothing reaches users until the draft is published.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag must match app version
+        shell: bash
+        run: |
+          app=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "v$app" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match app version $app"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: npm ci
+
+      - name: Test before releasing
+        run: |
+          npm test
+          npm run build
+          cd src-tauri
+          cargo test --lib --locked
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Update-signing key (not code signing). See README > Releasing.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Hollow Trace ${{ github.ref_name }}
+          releaseBody: Download the installer below. Existing installs will offer this update on next launch once the release is published.
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          # Signed updater bundles only in CI, so local builds don't need the private key
+          args: --config src-tauri/tauri.release.conf.json

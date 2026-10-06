@@ -1,6 +1,6 @@
 // Typed wrappers around Tauri invoke(). Never call invoke() directly elsewhere.
 import { invoke } from '@tauri-apps/api/core';
-import type { AppStats, Anomaly, LogFormat } from '../types/hollow';
+import type { AppStats, Anomaly, DetectionSettings, LogFormat } from '../types/hollow';
 
 export const openFile = (
   path: string,
@@ -23,10 +23,11 @@ export const getStats = (): Promise<AppStats> =>
 export const getAnomalies = (severityFilter?: string): Promise<Anomaly[]> =>
   invoke('get_anomalies', { severityFilter: severityFilter ?? null });
 
+/** Resolves to the number of anomalies written. */
 export const exportAnomalies = (
   outputPath: string,
   severityFilter?: string,
-): Promise<void> =>
+): Promise<number> =>
   invoke('export_anomalies', {
     outputPath,
     severityFilter: severityFilter ?? null,
@@ -34,3 +35,10 @@ export const exportAnomalies = (
 
 export const clearStream = (): Promise<void> =>
   invoke('clear_stream');
+
+export const getSettings = (): Promise<DetectionSettings> =>
+  invoke('get_settings');
+
+/** Validates and persists; rejects with a user-readable message if invalid. */
+export const saveSettings = (settings: DetectionSettings): Promise<void> =>
+  invoke('save_settings', { settings });

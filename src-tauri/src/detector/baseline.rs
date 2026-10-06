@@ -3,7 +3,6 @@ use crate::{
     parser::types::LogEntry,
 };
 
-const SIGMA_THRESHOLD: f64 = 3.0;
 const WARMUP_SAMPLES: u64 = 1_000;
 
 /// Welford's online algorithm for running mean and variance.
@@ -51,12 +50,14 @@ impl Welford {
 
 pub struct BaselineDetector {
     bytes: Welford,
+    sigma: f64,
 }
 
 impl BaselineDetector {
-    pub fn new() -> Self {
+    pub fn new(sigma: f64) -> Self {
         Self {
             bytes: Welford::new(),
+            sigma,
         }
     }
 
@@ -65,7 +66,7 @@ impl BaselineDetector {
     pub fn check_bytes(&mut self, entry: &LogEntry) -> Option<Anomaly> {
         let bytes = entry.bytes? as f64;
 
-        let is_dev = self.bytes.is_deviation(bytes, SIGMA_THRESHOLD);
+        let is_dev = self.bytes.is_deviation(bytes, self.sigma);
         let mean = self.bytes.mean;
         let stddev = self.bytes.stddev();
 
@@ -97,5 +98,57 @@ impl BaselineDetector {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::types::{LogFormat, LogLevel};
+
+    fn sized(id: u64, bytes: u64) -> LogEntry {
+        LogEntry {
+            id,
+            timestamp: id as i64,
+            ip: Some("10.0.0.1".into()),
+            method: Some("GET".into()),
+            path: Some("/".into()),
+            status_code: Some(200),
+            bytes: Some(bytes),
+            message: String::new(),
+            raw: String::new(),
+            format: LogFormat::Apache,
+            level: LogLevel::Info,
+            is_anomaly: false,
+            anomaly_id: None,
+        }
+    }
+
+    #[test]
+    fn flags_outlier_after_warmup_only() {
+        let mut det = BaselineDetector::new(3.0);
+        // Before warm-up even a huge response is not flagged
+        assert!(det.check_bytes(&sized(0, 10_000_000)).is_none());
+        // Steady ~1 KB responses with small variation
+        for i in 1..=WARMUP_SAMPLES {
+            assert!(det.check_bytes(&sized(i, 1_000 + (i % 50))).is_none());
+        }
+        let a = det.check_bytes(&sized(9_999, 50_000_000)).expect("outlier flagged");
+        assert_eq!(a.severity, Severity::Medium);
+        assert!(det.check_bytes(&sized(10_000, 1_010)).is_none());
+    }
+
+    #[test]
+    fn sigma_is_configurable() {
+        let mut strict = BaselineDetector::new(1.0);
+        let mut lax = BaselineDetector::new(10.0);
+        for i in 0..WARMUP_SAMPLES {
+            let b = 1_000 + (i % 100) * 10; // mean ~1495, sd ~290
+            strict.check_bytes(&sized(i, b));
+            lax.check_bytes(&sized(i, b));
+        }
+        // ~3 sd above the mean: flagged at sigma 1, not at sigma 10
+        assert!(strict.check_bytes(&sized(5_000, 2_400)).is_some());
+        assert!(lax.check_bytes(&sized(5_000, 2_400)).is_none());
     }
 }

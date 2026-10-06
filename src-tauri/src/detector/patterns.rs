@@ -93,7 +93,7 @@ static PATTERNS: Lazy<Vec<PatternDef>> = Lazy::new(|| {
                 r"(?i)(failed\s+password|authentication\s+failure|invalid\s+user|permission\s+denied|access\s+denied)",
             )
             .unwrap(),
-            severity: Severity::Medium,
+            severity: Severity::Low,
             target: Target::Raw,
         },
     ]

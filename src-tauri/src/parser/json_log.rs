@@ -119,3 +119,40 @@ fn parse_level(s: &str) -> LogLevel {
         _ => LogLevel::Info,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_common_field_names() {
+        let line = r#"{"@timestamp":"2026-05-01T10:20:30Z","level":"warning","msg":"login failed","client_ip":"203.0.113.9","method":"POST","url":"/login","status":"401","bytes_sent":120}"#;
+        let e = JsonLogParser.try_parse(line, 2).unwrap();
+        assert_eq!(e.timestamp, 1_777_630_830_000);
+        assert!(matches!(e.level, LogLevel::Warn));
+        assert_eq!(e.message, "login failed");
+        assert_eq!(e.ip.as_deref(), Some("203.0.113.9"));
+        assert_eq!(e.method.as_deref(), Some("POST"));
+        assert_eq!(e.path.as_deref(), Some("/login"));
+        assert_eq!(e.status_code, Some(401));
+        assert_eq!(e.bytes, Some(120));
+    }
+
+    #[test]
+    fn epoch_seconds_and_millis() {
+        let s = JsonLogParser.try_parse(r#"{"ts":1777630830,"message":"x"}"#, 1).unwrap();
+        let ms = JsonLogParser.try_parse(r#"{"ts":1777630830000,"message":"x"}"#, 1).unwrap();
+        assert_eq!(s.timestamp, 1_777_630_830_000);
+        assert_eq!(ms.timestamp, 1_777_630_830_000);
+    }
+
+    #[test]
+    fn falls_back_to_whole_line_and_rejects_non_objects() {
+        let e = JsonLogParser.try_parse(r#"{"level":"fatal"}"#, 1).unwrap();
+        assert_eq!(e.message, r#"{"level":"fatal"}"#);
+        assert!(matches!(e.level, LogLevel::Error));
+        assert!(JsonLogParser.try_parse("[1,2,3]", 1).is_none());
+        assert!(JsonLogParser.try_parse("{broken", 1).is_none());
+        assert!(JsonLogParser.try_parse("plain text", 1).is_none());
+    }
+}

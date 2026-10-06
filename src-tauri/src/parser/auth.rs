@@ -29,12 +29,7 @@ impl Parser for AuthParser {
         let message = caps.get(4)?.as_str().to_string();
 
         let month = month_to_num(month_str)?;
-        let year = Utc::now().year();
-        let dt_str = format!("{}-{:02}-{:02} {}", year, month, day, time_str);
-
-        let timestamp = NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%d %H:%M:%S")
-            .map(|ndt| ndt.and_utc().timestamp_millis())
-            .unwrap_or_else(|_| Utc::now().timestamp_millis());
+        let timestamp = syslog_timestamp(month, day, time_str, Utc::now().timestamp_millis());
 
         let ip = IP_RE
             .captures(&message)
@@ -72,6 +67,22 @@ impl Parser for AuthParser {
     }
 }
 
+/// RFC 3164 timestamps have no year. Assume the current year, unless that puts the line
+/// more than a day in the future (e.g. a December log read in January): then use last year.
+fn syslog_timestamp(month: u32, day: u32, time_str: &str, now_ms: i64) -> i64 {
+    let year = chrono::DateTime::from_timestamp_millis(now_ms).map_or(1970, |d| d.year());
+    let at = |y: i32| {
+        NaiveDateTime::parse_from_str(&format!("{y}-{month:02}-{day:02} {time_str}"), "%Y-%m-%d %H:%M:%S")
+            .ok()
+            .map(|ndt| ndt.and_utc().timestamp_millis())
+    };
+    match at(year) {
+        Some(ts) if ts > now_ms + 86_400_000 => at(year - 1).unwrap_or(ts),
+        Some(ts) => ts,
+        None => now_ms,
+    }
+}
+
 fn month_to_num(abbr: &str) -> Option<u32> {
     match abbr {
         "Jan" => Some(1),
@@ -87,5 +98,46 @@ fn month_to_num(abbr: &str) -> Option<u32> {
         "Nov" => Some(11),
         "Dec" => Some(12),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_failed_ssh_login() {
+        let line = "May  4 22:08:26 web01 sshd[1234]: Failed password for invalid user admin from 203.0.113.7 port 52314 ssh2";
+        let e = AuthParser.try_parse(line, 7).unwrap();
+        assert_eq!(e.id, 7);
+        assert_eq!(e.ip.as_deref(), Some("203.0.113.7"));
+        assert!(matches!(e.level, LogLevel::Error));
+        assert!(e.message.starts_with("Failed password"));
+        assert!(matches!(e.format, LogFormat::AuthLog));
+        assert_eq!(e.status_code, None);
+    }
+
+    #[test]
+    fn levels_and_missing_ip() {
+        let ok = AuthParser.try_parse("Oct  5 09:00:01 web01 CRON[99]: session opened for user root", 1).unwrap();
+        assert!(matches!(ok.level, LogLevel::Info));
+        assert_eq!(ok.ip, None);
+        let refused = AuthParser.try_parse("Oct  5 09:00:01 web01 sshd[2]: Connection refused by 10.0.0.9", 1).unwrap();
+        assert!(matches!(refused.level, LogLevel::Warn));
+    }
+
+    #[test]
+    fn rejects_other_formats() {
+        assert!(AuthParser.try_parse(r#"{"msg":"hi"}"#, 1).is_none());
+        assert!(AuthParser.try_parse("Foo  4 22:08:26 host prog: x", 1).is_none());
+    }
+
+    #[test]
+    fn year_rolls_back_for_future_dates() {
+        let jan_2027 = chrono::NaiveDate::from_ymd_opt(2027, 1, 2).unwrap().and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis();
+        let ts = syslog_timestamp(12, 31, "23:59:00", jan_2027);
+        assert_eq!(chrono::DateTime::from_timestamp_millis(ts).unwrap().year(), 2026);
+        let ts = syslog_timestamp(1, 1, "10:00:00", jan_2027);
+        assert_eq!(chrono::DateTime::from_timestamp_millis(ts).unwrap().year(), 2027);
     }
 }
