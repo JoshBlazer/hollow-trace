@@ -1,7 +1,7 @@
 import React from 'react'
 import type { CSSProperties } from 'react'
 import type { LogEntry } from '../../types/hollow'
-import { formatTimestamp, statusColor } from '../../lib/format'
+import { formatTimestamp, severityColor, statusColor } from '../../lib/format'
 import LogRowExpanded from './LogRowExpanded'
 
 interface Props {
@@ -43,7 +43,11 @@ const LogRow = React.memo(function LogRow({
         {/* Anomaly indicator */}
         <span
           className="w-3 text-center shrink-0"
-          style={{ color: anomaly ? '#ff0055' : '#00ff41', opacity: anomaly ? 1 : 0.25 }}
+          style={{
+            color: anomaly ? severityColor(entry.anomalySeverity ?? 'high') : '#00ff41',
+            opacity: anomaly ? 1 : 0.25,
+          }}
+          title={entry.anomalySeverity ? `${entry.anomalySeverity} anomaly` : undefined}
         >
           {anomaly ? '!' : '·'}
         </span>

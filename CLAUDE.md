@@ -34,6 +34,8 @@ in real-time. Rust backend handles all parsing and detection. React frontend is 
 - [x] Phase 10 — Stats Bar
 - [x] Phase 11 — Command Palette
 - [x] Phase 12 — Integration + error boundaries
+- [x] v0.3.0 — Search/filter + jump-to-line, Anomalies view, CSV + Markdown report export,
+      auth.log IPv6, app ID dev.hollowtrace.desktop
 - [x] v0.2.0 — Hardening: tests + CI, least-privilege capabilities + CSP, memory caps, gzip,
       visible errors + log file, detection settings/allowlist, release pipeline + auto-update
 
@@ -157,4 +159,6 @@ notify-debouncer-mini = "0.7"
 - serde camelCase: eliminates all manual field name mapping
 - Removed tauri-plugin-fs (v0.2.0): the frontend never used it, and it granted the webview read/write on the whole home dir
 - Single auth failures are Low; repeated failures from one IP are a High rate burst (rate detector counts 4xx and failed logins)
+- Exports escape attacker text: CSV neutralizes formula cells (=,+,-,@), Markdown entity-encodes HTML and escapes syntax — keep this for any new output format
+- App ID is dev.hollowtrace.desktop with a pinned WiX upgradeCode — never change either (breaks upgrades and moves user settings)
 - Releases: tag vX.Y.Z -> draft GitHub Release with signed updater bundles; publishing the draft ships the update

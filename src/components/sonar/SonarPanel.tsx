@@ -44,9 +44,11 @@ function blipPosition(anomaly: Anomaly): { cx: number; cy: number } {
 
 interface Props {
   threatScore: number
+  /** Show an anomaly's line in the stream */
+  onJump: (entryId: number) => void
 }
 
-export default function SonarPanel({ threatScore }: Props) {
+export default function SonarPanel({ threatScore, onJump }: Props) {
   const [anomalies, setAnomalies] = useState<Anomaly[]>([])
   const [newIds, setNewIds] = useState<Set<number>>(new Set())
 
@@ -118,9 +120,11 @@ export default function SonarPanel({ threatScore }: Props) {
             <div className="px-3 py-2 text-neon/15 text-[10px] tracking-widest">NO ANOMALIES</div>
           ) : (
             recent.map(a => (
-              <div
+              <button
                 key={a.id}
-                className="flex items-center gap-2 px-3 py-1 border-b border-neon/10 hover:bg-neon/5"
+                onClick={() => onJump(a.entryId)}
+                title="Show this line in the stream"
+                className="w-full text-left flex items-center gap-2 px-3 py-1 border-b border-neon/10 hover:bg-neon/5"
               >
                 <span
                   className="shrink-0 text-[10px] font-bold"
@@ -131,7 +135,7 @@ export default function SonarPanel({ threatScore }: Props) {
                 <span className="flex-1 truncate text-neon/50 text-[10px]" title={a.description}>
                   {a.description}
                 </span>
-              </div>
+              </button>
             ))
           )}
         </div>

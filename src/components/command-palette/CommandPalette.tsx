@@ -3,6 +3,7 @@ import { save as dialogSave } from '@tauri-apps/plugin-dialog'
 import {
   stopWatching,
   exportAnomalies,
+  exportReport,
   clearStream,
 } from '../../lib/tauri-commands'
 import { pickAndOpenFile, pickAndWatchFile } from '../../lib/file-actions'
@@ -46,15 +47,32 @@ export default function CommandPalette({ onClose, onClearFrontend, onOpenSetting
     {
       id: 'export',
       label: 'Export Anomalies',
-      description: 'Save detected anomalies to a JSON file',
+      description: 'Save detected anomalies as CSV (spreadsheets) or JSON',
       action: async () => {
         const path = await dialogSave({
-          defaultPath: 'anomalies.json',
-          filters: [{ name: 'JSON', extensions: ['json'] }],
+          defaultPath: 'anomalies.csv',
+          filters: [
+            { name: 'CSV', extensions: ['csv'] },
+            { name: 'JSON', extensions: ['json'] },
+          ],
         })
         if (!path || typeof path !== 'string') return
         const count = await exportAnomalies(path)
         notify('success', `Exported ${count} ${count === 1 ? 'anomaly' : 'anomalies'} to ${path}`)
+      },
+    },
+    {
+      id: 'report',
+      label: 'Export Report',
+      description: 'Incident summary (Markdown): top sources, attack types, timeline',
+      action: async () => {
+        const path = await dialogSave({
+          defaultPath: 'incident-report.md',
+          filters: [{ name: 'Markdown', extensions: ['md'] }],
+        })
+        if (!path || typeof path !== 'string') return
+        await exportReport(path)
+        notify('success', `Report saved to ${path}`)
       },
     },
     {

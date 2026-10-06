@@ -43,7 +43,12 @@ Built with Tauri 2: a Rust backend does all parsing and detection, and a React +
 - **Threat score (0–100).** The score has two halves, each capped at 50:
   - the anomaly rate (the percentage of lines flagged);
   - a severity weighting: Critical × 20, High × 10, Medium × 5, Low × 1.
-- **Export.** Save detected anomalies to a JSON file.
+- **Search.** Filter the stream by text, IP or CIDR range, severity and HTTP status class. Searches cover the last 100,000 lines, not just the 10,000 on screen.
+- **Jump to line.** Click any anomaly, in the radar's Recent list or the Anomalies tab, to see that line with 200 lines of context either side.
+- **Anomalies view.** All anomalies grouped by source IP or attack type, with counts, worst severity and first/last seen. Expand a group to see its individual findings.
+- **Export.**
+  - Anomalies as CSV for spreadsheets, or JSON. Cells that a spreadsheet would run as formulas are neutralized, because log text is attacker-controlled.
+  - A Markdown incident report: summary, top sources, attack types, timeline and critical findings. Attacker text is escaped, so it can't render as HTML or links when pasted into a ticket.
 - **Works offline.** Fonts and assets are bundled. The only network request is the optional update check against this repo's GitHub Releases.
 - **Auto-updates.** The app checks for a signed release once per launch and offers to install it.
 
@@ -84,18 +89,22 @@ The app icon's source is `app-icon.svg`. After editing it, regenerate every size
 
 ## Usage
 
-Press **Ctrl+K** (⌘K on macOS) to open the command palette, then choose one of these commands. **Ctrl+O** (⌘O) opens a file directly.
+Press **Ctrl+K** (⌘K on macOS) to open the command palette, then choose one of these commands. **Ctrl+O** (⌘O) opens a file directly, and **Ctrl+F** (⌘F) jumps to the search box.
 
 | Command | What it does |
 |---|---|
 | Open File | Parse an existing log file (plain or `.gz`) from start to finish |
 | Watch File | Tail a live log file for new entries |
-| Export Anomalies | Save detected anomalies to a JSON file |
+| Export Anomalies | Save anomalies as CSV or JSON |
+| Export Report | Save a Markdown incident report |
 | Stop Watching | Detach the file watcher |
 | Clear Stream | Flush the log buffer and reset stats |
 | Detection Settings | Edit thresholds and the IP allowlist |
 
-In the log stream, click a row to see the raw line and parsed fields. Rows with a `!` triggered an anomaly. **PAUSE** stops auto-scrolling.
+The main panel has two tabs:
+
+- **Stream.** Click a row to see the raw line and parsed fields. A `!` marks an anomaly and is colored by severity. **PAUSE** stops auto-scrolling. Use the search bar to filter; the status line shows how many lines matched.
+- **Anomalies.** Group by source IP or attack type. Click a column header to sort, click a group to expand it, and click a finding to jump to its line.
 
 On the radar, a blip's distance from the center shows its severity: Critical on the outer ring, Low near the center. The **Recent** list shows the latest anomalies with their source IP and request.
 
@@ -210,4 +219,3 @@ See [`CLAUDE.md`](CLAUDE.md) for the project's conventions and key design decisi
 
 - `npm audit` reports 5 high-severity findings in `braces`, which Tailwind CSS v3's file watcher depends on. No patched `braces` release exists, and npm's only fix is upgrading to Tailwind v4, which this project doesn't use. The exposure is build-time only: nothing from this dependency ships in the app.
 - Detection only sees what the log records. Request bodies (e.g. POSTed SQL injection) aren't in access logs.
-- `auth.log` IP extraction is IPv4 only.

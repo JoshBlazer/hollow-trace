@@ -3,7 +3,7 @@ import './App.css'
 
 import AppShell from './components/layout/AppShell'
 import ErrorBoundary from './components/ErrorBoundary'
-import LogStreamPanel from './components/log-stream/LogStreamPanel'
+import MainPanel, { type JumpRequest } from './components/main/MainPanel'
 import SonarPanel from './components/sonar/SonarPanel'
 import StatsBar from './components/stats/StatsBar'
 import CommandPalette from './components/command-palette/CommandPalette'
@@ -21,6 +21,12 @@ export default function App() {
   const [stats, setStats] = useState<AppStats>(DEFAULT_STATS)
   const { entries, clear: clearBuffer, session } = useLogBuffer()
   const { isOpen, close } = useCommandPalette()
+
+  const [jumpRequest, setJumpRequest] = useState<JumpRequest | null>(null)
+  const jumpTo = useCallback(
+    (entryId: number) => setJumpRequest(prev => ({ entryId, nonce: (prev?.nonce ?? 0) + 1 })),
+    [],
+  )
 
   const [settingsOpen, setSettingsOpen] = useState(false)
   const openSettings = useCallback(() => setSettingsOpen(true), [])
@@ -52,12 +58,19 @@ export default function App() {
         }
         logStream={
           <ErrorBoundary label="LOG STREAM">
-            <LogStreamPanel entries={entries} session={session} onClear={handleClearAll} />
+            <MainPanel
+              entries={entries}
+              session={session}
+              stats={stats}
+              onClear={handleClearAll}
+              jumpRequest={jumpRequest}
+              onJump={jumpTo}
+            />
           </ErrorBoundary>
         }
         sonar={
           <ErrorBoundary label="SONAR">
-            <SonarPanel threatScore={stats.threatScore} />
+            <SonarPanel threatScore={stats.threatScore} onJump={jumpTo} />
           </ErrorBoundary>
         }
       />
