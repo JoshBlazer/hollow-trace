@@ -166,7 +166,7 @@ cd src-tauri && cargo test --lib   # backend
 
 ## Releasing
 
-1. Bump the version in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`.
+1. Bump the version in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Then run `cargo update -p hollow-trace` in `src-tauri` so `Cargo.lock` matches; CI builds with `--locked` and fails otherwise.
 2. Commit, then push a matching tag:
 
    ```sh
