@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::{
     detector::types::{Anomaly, Severity},
@@ -21,10 +21,12 @@ fn stop_watcher(watcher: &Arc<std::sync::Mutex<Option<WatcherHandle>>>) {
     }
 }
 
-fn reset_state(state: &AppState) {
+/// Clears backend state and tells the frontend to drop what it's showing.
+fn reset_state(state: &AppState, app: &AppHandle) {
     state.ring_buffer.write().clear();
     state.anomalies.write().clear();
     *state.stats.write() = AppStats::default();
+    let _ = app.emit(crate::events::STREAM_RESET_EVENT, ());
 }
 
 fn filter_anomalies(all: &[Anomaly], severity_filter: Option<&str>) -> Vec<Anomaly> {
@@ -62,18 +64,23 @@ pub async fn open_file(
     state: tauri::State<'_, AppState>,
     app: AppHandle,
 ) -> Result<AppStats, String> {
+    // Fail before touching anything, so a bad pick keeps the current view
+    crate::watcher::check_readable(&path)?;
     stop_watcher(&state.watcher);
-    reset_state(&state);
+    reset_state(&state, &app);
 
     let stores = state.stores();
     let settings = state.settings.read().clone();
 
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::watcher::process_file(&path, format, &settings, stores, app)
+    // Errors are returned to the UI, which logs them; successes are logged here
+    let stats = tauri::async_runtime::spawn_blocking(move || {
+        let stats = crate::watcher::process_file(&path, format, &settings, stores, app)?;
+        log::info!("Opened '{path}': {} lines, {} anomalies", stats.total_lines, stats.anomaly_count);
+        Ok::<_, String>(stats)
     })
     .await
-    .map_err(|e| format!("Spawn error: {e}"))?
-    .inspect_err(|e| log::error!("open_file: {e}"))
+    .map_err(|e| format!("Spawn error: {e}"))??;
+    Ok(stats)
 }
 
 /// Start tailing a live log file. Setup errors (missing file, gzip, watcher failure)
@@ -85,12 +92,14 @@ pub fn start_watching(
     state: tauri::State<'_, AppState>,
     app: AppHandle,
 ) -> Result<(), String> {
+    // All setup (open, gzip check, OS watcher) first: a failure keeps the current view
+    let prepared = crate::watcher::prepare_watch(path.clone(), format)?;
     stop_watcher(&state.watcher);
-    reset_state(&state);
+    reset_state(&state, &app);
 
     let settings = state.settings.read().clone();
-    let handle = crate::watcher::start_watching(path, format, &settings, state.stores(), app)
-        .inspect_err(|e| log::error!("start_watching: {e}"))?;
+    let handle = prepared.spawn(&settings, state.stores(), app);
+    log::info!("Watching '{path}'");
 
     *state.watcher.lock().map_err(|e| format!("Lock error: {e}"))? = Some(handle);
     Ok(())
@@ -134,14 +143,13 @@ pub async fn export_anomalies(
     })
     .await
     .map_err(|e| format!("Spawn error: {e}"))?
-    .inspect_err(|e| log::error!("export_anomalies: {e}"))
 }
 
 /// Clear the ring buffer, anomaly list, and stats — reset to initial state.
 #[tauri::command]
-pub fn clear_stream(state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub fn clear_stream(state: tauri::State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     stop_watcher(&state.watcher);
-    reset_state(&state);
+    reset_state(&state, &app);
     Ok(())
 }
 

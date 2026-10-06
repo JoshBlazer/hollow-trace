@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+import { getVersion } from '@tauri-apps/api/app'
 import type { AppStats } from '../../types/hollow'
 import LiveCounter from './LiveCounter'
 import SeverityBreakdown from './SeverityBreakdown'
@@ -13,6 +15,11 @@ function Divider() {
 
 export default function StatsBar({ stats }: Props) {
   const hasData = stats.totalLines > 0
+  const [version, setVersion] = useState('')
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => {})
+  }, [])
 
   return (
     <div className="flex items-center justify-between w-full text-xs tracking-widest min-w-0">
@@ -20,7 +27,7 @@ export default function StatsBar({ stats }: Props) {
       {/* Brand */}
       <span className="text-neon font-bold shrink-0">
         ◈ HOLLOW TRACE{' '}
-        <span className="opacity-30 font-normal">v0.1.0</span>
+        <span className="opacity-30 font-normal">{version && `v${version}`}</span>
       </span>
 
       {/* Center stats */}

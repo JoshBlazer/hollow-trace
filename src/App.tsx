@@ -19,7 +19,7 @@ import type { AppStats } from './types/hollow'
 
 export default function App() {
   const [stats, setStats] = useState<AppStats>(DEFAULT_STATS)
-  const { entries, clear: clearBuffer } = useLogBuffer()
+  const { entries, clear: clearBuffer, session } = useLogBuffer()
   const { isOpen, close } = useCommandPalette()
 
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -27,6 +27,7 @@ export default function App() {
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
 
   useTauriEvents<AppStats>('stats_update', setStats)
+  useTauriEvents<null>('stream_reset', () => setStats(DEFAULT_STATS))
 
   useEffect(() => {
     void checkForUpdates()
@@ -51,7 +52,7 @@ export default function App() {
         }
         logStream={
           <ErrorBoundary label="LOG STREAM">
-            <LogStreamPanel entries={entries} onClear={handleClearAll} />
+            <LogStreamPanel entries={entries} session={session} onClear={handleClearAll} />
           </ErrorBoundary>
         }
         sonar={

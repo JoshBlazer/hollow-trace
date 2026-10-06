@@ -9,6 +9,8 @@ pub const BATCH_SIZE: usize = 50;
 pub const FILE_BATCH_SIZE: usize = 1_000;
 pub const EMIT_INTERVAL_MS: u64 = 100;
 pub const STATS_INTERVAL_MS: u64 = 500;
+/// Emitted (no payload) when a new Open/Watch/Clear starts: the frontend drops everything shown.
+pub const STREAM_RESET_EVENT: &str = "stream_reset";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

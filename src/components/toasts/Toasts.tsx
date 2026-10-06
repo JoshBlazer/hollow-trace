@@ -62,7 +62,7 @@ export default function Toasts() {
   useTauriEvents<AppErrorPayload>('app_error', message => notify('error', message))
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-2 pointer-events-none">
+    <div className="fixed bottom-14 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-2 pointer-events-none">
       {toasts.map(t => <ToastRow key={t.id} toast={t} />)}
     </div>
   )

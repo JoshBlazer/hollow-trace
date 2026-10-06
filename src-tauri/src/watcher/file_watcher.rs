@@ -6,8 +6,8 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 use flate2::read::MultiGzDecoder;
-use notify::RecursiveMode;
-use notify_debouncer_mini::new_debouncer;
+use notify::{RecommendedWatcher, RecursiveMode};
+use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use parking_lot::RwLock;
 
 use crate::{
@@ -15,7 +15,9 @@ use crate::{
         types::{Anomaly, Severity},
         AnomalyDetector,
     },
-    events::{EventSink, LogBatch, BATCH_SIZE, EMIT_INTERVAL_MS, FILE_BATCH_SIZE, STATS_INTERVAL_MS},
+    events::{
+        EventSink, LogBatch, BATCH_SIZE, EMIT_INTERVAL_MS, FILE_BATCH_SIZE, STATS_INTERVAL_MS,
+    },
     parser::{build_chain, detect_format, types::LogFormat, ParserChain},
     ring_buffer::RingBuffer,
     scorer::{calculate_threat_score, AppStats, IpCount, SeverityCounts},
@@ -67,7 +69,13 @@ struct LineProcessor<S: EventSink> {
 }
 
 impl<S: EventSink> LineProcessor<S> {
-    fn new(chain: ParserChain, batch_size: usize, settings: &DetectionSettings, stores: Stores, sink: S) -> Self {
+    fn new(
+        chain: ParserChain,
+        batch_size: usize,
+        settings: &DetectionSettings,
+        stores: Stores,
+        sink: S,
+    ) -> Self {
         let now = Instant::now();
         Self {
             chain,
@@ -136,7 +144,8 @@ impl<S: EventSink> LineProcessor<S> {
         self.batch.anomalies.extend(anomalies);
         self.batch.entries.push(entry);
 
-        if self.batch.entries.len() >= self.batch_size || self.last_emit.elapsed() >= EMIT_INTERVAL {
+        if self.batch.entries.len() >= self.batch_size || self.last_emit.elapsed() >= EMIT_INTERVAL
+        {
             self.flush_batch();
         }
     }
@@ -175,7 +184,10 @@ impl<S: EventSink> LineProcessor<S> {
         let mut top_ips: Vec<IpCount> = self
             .ip_counts
             .iter()
-            .map(|(ip, &count)| IpCount { ip: ip.clone(), count })
+            .map(|(ip, &count)| IpCount {
+                ip: ip.clone(),
+                count,
+            })
             .collect();
         top_ips.sort_unstable_by(|a, b| b.count.cmp(&a.count));
         top_ips.truncate(5);
@@ -217,7 +229,9 @@ impl<S: EventSink> LineProcessor<S> {
 fn is_gzip(path: &Path) -> Result<bool, String> {
     let mut magic = [0u8; 2];
     let mut f = File::open(path).map_err(|e| format!("Cannot open '{}': {e}", path.display()))?;
-    let n = f.read(&mut magic).map_err(|e| format!("Cannot read '{}': {e}", path.display()))?;
+    let n = f
+        .read(&mut magic)
+        .map_err(|e| format!("Cannot read '{}': {e}", path.display()))?;
     Ok(n == 2 && magic == GZIP_MAGIC)
 }
 
@@ -275,7 +289,13 @@ pub fn process_file<S: EventSink>(
     };
 
     let mut reader = open_log(path)?;
-    let mut proc = LineProcessor::new(build_chain(&detected_format), FILE_BATCH_SIZE, settings, stores, sink);
+    let mut proc = LineProcessor::new(
+        build_chain(&detected_format),
+        FILE_BATCH_SIZE,
+        settings,
+        stores,
+        sink,
+    );
 
     let mut buf = Vec::new();
     loop {
@@ -298,9 +318,25 @@ pub fn process_file<S: EventSink>(
     Ok(proc.finalize())
 }
 
-/// Tail a live log file on a dedicated OS thread. Opening the file, detecting its format
-/// and starting the OS watcher happen before this returns, so setup failures reach the
-/// caller. Later failures are reported through `sink.error`.
+/// Fails fast if `path` can't be opened for Open File, before any state is reset.
+pub fn check_readable(path: &str) -> Result<(), String> {
+    open_log(Path::new(path)).map(|_| ())
+}
+
+/// A live watch whose setup succeeded (file opened, format detected, OS watcher running)
+/// but which hasn't started processing yet. Splitting setup from `spawn` lets callers
+/// leave existing state untouched when setup fails.
+pub struct PreparedWatch {
+    path_buf: PathBuf,
+    reader: BufReader<File>,
+    pos: u64,
+    chain: ParserChain,
+    debouncer: Debouncer<RecommendedWatcher>,
+    event_rx: mpsc::Receiver<DebounceEventResult>,
+}
+
+/// Tail a live log file on a dedicated OS thread. See [`prepare_watch`] and
+/// [`PreparedWatch::spawn`]; this is both in one step.
 pub fn start_watching<S: EventSink>(
     path: String,
     format: Option<LogFormat>,
@@ -308,6 +344,12 @@ pub fn start_watching<S: EventSink>(
     stores: Stores,
     sink: S,
 ) -> Result<WatcherHandle, String> {
+    Ok(prepare_watch(path, format)?.spawn(settings, stores, sink))
+}
+
+/// Opens the file, detects its format and starts the OS watcher. Setup failures are
+/// returned here; nothing has been processed yet.
+pub fn prepare_watch(path: String, format: Option<LogFormat>) -> Result<PreparedWatch, String> {
     let path_buf = PathBuf::from(&path);
     if is_gzip(&path_buf)? {
         return Err("Compressed (.gz) logs can't be watched live. Use Open File instead.".into());
@@ -320,7 +362,9 @@ pub fn start_watching<S: EventSink>(
         None => sample_format(&mut reader),
     };
     // Tail from the current end
-    let mut pos = reader.seek(SeekFrom::End(0)).map_err(|e| format!("Seek failed: {e}"))?;
+    let pos = reader
+        .seek(SeekFrom::End(0))
+        .map_err(|e| format!("Seek failed: {e}"))?;
 
     let (event_tx, event_rx) = mpsc::channel();
     let mut debouncer = new_debouncer(Duration::from_millis(200), move |res| {
@@ -332,76 +376,114 @@ pub fn start_watching<S: EventSink>(
         .watch(&path_buf, RecursiveMode::NonRecursive)
         .map_err(|e| format!("Cannot watch '{path}': {e}"))?;
 
-    let chain = build_chain(&detected_format);
-    let settings = settings.clone();
-    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    Ok(PreparedWatch {
+        path_buf,
+        reader,
+        pos,
+        chain: build_chain(&detected_format),
+        debouncer,
+        event_rx,
+    })
+}
 
-    std::thread::spawn(move || {
-        let _debouncer = debouncer; // keep the OS watcher alive for the thread's lifetime
-        let mut proc = LineProcessor::new(chain, BATCH_SIZE, &settings, stores, sink);
-        // Bytes of a line still being written (no trailing newline yet)
-        let mut pending: Vec<u8> = Vec::new();
-        let mut buf = Vec::new();
+impl PreparedWatch {
+    /// Starts processing appended lines on a dedicated OS thread. Later failures are
+    /// reported through `sink.error`.
+    pub fn spawn<S: EventSink>(
+        self,
+        settings: &DetectionSettings,
+        stores: Stores,
+        sink: S,
+    ) -> WatcherHandle {
+        let PreparedWatch {
+            path_buf,
+            mut reader,
+            mut pos,
+            chain,
+            debouncer,
+            event_rx,
+        } = self;
+        let settings = settings.clone();
+        let (stop_tx, stop_rx) = mpsc::channel::<()>();
 
-        loop {
-            if stop_rx.try_recv().is_ok() {
-                break;
-            }
+        std::thread::spawn(move || {
+            let _debouncer = debouncer; // keep the OS watcher alive for the thread's lifetime
+            let mut proc = LineProcessor::new(chain, BATCH_SIZE, &settings, stores, sink);
+            // Bytes of a line still being written (no trailing newline yet)
+            let mut pending: Vec<u8> = Vec::new();
+            let mut buf = Vec::new();
 
-            match event_rx.recv_timeout(EMIT_INTERVAL) {
-                Ok(_) => {
-                    // Truncated (copytruncate) or replaced (rotation): restart from the top
-                    let len = std::fs::metadata(&path_buf).map(|m| m.len()).unwrap_or(pos);
-                    if len < pos {
-                        match File::open(&path_buf) {
-                            Ok(f) => {
-                                reader = BufReader::new(f);
-                                pos = 0;
-                                pending.clear();
-                                log::info!("[watcher] '{}' was truncated or rotated; reading from the start", path_buf.display());
-                            }
-                            Err(e) => {
-                                proc.sink.error(&format!("Lost access to '{}': {e}", path_buf.display()));
-                                break;
-                            }
-                        }
-                    }
-
-                    loop {
-                        buf.clear();
-                        match reader.read_until(b'\n', &mut buf) {
-                            Ok(0) => break,
-                            Ok(n) => {
-                                pos += n as u64;
-                                pending.extend_from_slice(&buf);
-                                if pending.last() == Some(&b'\n') {
-                                    let line = String::from_utf8_lossy(&pending).trim_end().to_string();
-                                    pending.clear();
-                                    proc.process_line(&line);
-                                }
-                            }
-                            Err(e) => {
-                                proc.sink.error(&format!("Error reading '{}': {e}", path_buf.display()));
-                                break;
-                            }
-                        }
-                    }
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    proc.sink.error(&format!("File watcher for '{}' stopped unexpectedly", path_buf.display()));
+            loop {
+                if stop_rx.try_recv().is_ok() {
                     break;
                 }
+
+                match event_rx.recv_timeout(EMIT_INTERVAL) {
+                    Ok(_) => {
+                        // Truncated (copytruncate) or replaced (rotation): restart from the top
+                        let len = std::fs::metadata(&path_buf).map(|m| m.len()).unwrap_or(pos);
+                        if len < pos {
+                            match File::open(&path_buf) {
+                                Ok(f) => {
+                                    reader = BufReader::new(f);
+                                    pos = 0;
+                                    pending.clear();
+                                    log::info!("[watcher] '{}' was truncated or rotated; reading from the start", path_buf.display());
+                                }
+                                Err(e) => {
+                                    proc.sink.error(&format!(
+                                        "Lost access to '{}': {e}",
+                                        path_buf.display()
+                                    ));
+                                    break;
+                                }
+                            }
+                        }
+
+                        loop {
+                            buf.clear();
+                            match reader.read_until(b'\n', &mut buf) {
+                                Ok(0) => break,
+                                Ok(n) => {
+                                    pos += n as u64;
+                                    pending.extend_from_slice(&buf);
+                                    if pending.last() == Some(&b'\n') {
+                                        let line = String::from_utf8_lossy(&pending)
+                                            .trim_end()
+                                            .to_string();
+                                        pending.clear();
+                                        proc.process_line(&line);
+                                    }
+                                }
+                                Err(e) => {
+                                    proc.sink.error(&format!(
+                                        "Error reading '{}': {e}",
+                                        path_buf.display()
+                                    ));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        proc.sink.error(&format!(
+                            "File watcher for '{}' stopped unexpectedly",
+                            path_buf.display()
+                        ));
+                        break;
+                    }
+                }
+
+                proc.flush_batch();
+                proc.maybe_emit_stats();
             }
 
-            proc.flush_batch();
-            proc.maybe_emit_stats();
-        }
+            proc.finalize();
+        });
 
-        proc.finalize();
-    });
-
-    Ok(WatcherHandle { stop_tx })
+        WatcherHandle { stop_tx }
+    }
 }
 
 #[cfg(test)]
@@ -424,7 +506,9 @@ mod tests {
     }
 
     fn apache(ip: &str, path: &str, status: u16) -> String {
-        format!(r#"{ip} - - [01/May/2026:10:00:00 +0000] "GET {path} HTTP/1.1" {status} 100 "-" "test""#)
+        format!(
+            r#"{ip} - - [01/May/2026:10:00:00 +0000] "GET {path} HTTP/1.1" {status} 100 "-" "test""#
+        )
     }
 
     fn sample_log() -> String {
@@ -445,7 +529,14 @@ mod tests {
         let sink = RecordingSink::default();
         let st = stores();
 
-        let stats = process_file(path.to_str().unwrap(), None, &DetectionSettings::default(), st.clone(), sink.clone()).unwrap();
+        let stats = process_file(
+            path.to_str().unwrap(),
+            None,
+            &DetectionSettings::default(),
+            st.clone(),
+            sink.clone(),
+        )
+        .unwrap();
 
         assert_eq!(stats.total_lines, 31);
         assert_eq!(stats.anomaly_count, 1);
@@ -460,12 +551,22 @@ mod tests {
     fn processes_gzip_file_by_content() {
         // Named .log on purpose: detection is by magic bytes, not extension
         let path = temp_path("compressed.log");
-        let mut enc = flate2::write::GzEncoder::new(File::create(&path).unwrap(), flate2::Compression::default());
+        let mut enc = flate2::write::GzEncoder::new(
+            File::create(&path).unwrap(),
+            flate2::Compression::default(),
+        );
         enc.write_all(sample_log().as_bytes()).unwrap();
         enc.finish().unwrap();
 
         let sink = RecordingSink::default();
-        let stats = process_file(path.to_str().unwrap(), None, &DetectionSettings::default(), stores(), sink).unwrap();
+        let stats = process_file(
+            path.to_str().unwrap(),
+            None,
+            &DetectionSettings::default(),
+            stores(),
+            sink,
+        )
+        .unwrap();
         assert_eq!(stats.total_lines, 31);
         assert_eq!(stats.anomaly_count, 1);
         let _ = std::fs::remove_file(path);
@@ -481,15 +582,32 @@ mod tests {
         std::fs::write(&path, bytes).unwrap();
 
         let sink = RecordingSink::default();
-        let stats = process_file(path.to_str().unwrap(), None, &DetectionSettings::default(), stores(), sink.clone()).unwrap();
+        let stats = process_file(
+            path.to_str().unwrap(),
+            None,
+            &DetectionSettings::default(),
+            stores(),
+            sink.clone(),
+        )
+        .unwrap();
         assert_eq!(stats.total_lines, 33, "bad line counted, parsing continued");
-        assert!(sink.entries().iter().any(|e| e.path.as_deref() == Some("/after")));
+        assert!(sink
+            .entries()
+            .iter()
+            .any(|e| e.path.as_deref() == Some("/after")));
         let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn missing_file_is_an_error() {
-        let err = process_file("Z:/definitely/missing.log", None, &DetectionSettings::default(), stores(), RecordingSink::default()).unwrap_err();
+        let err = process_file(
+            "Z:/definitely/missing.log",
+            None,
+            &DetectionSettings::default(),
+            stores(),
+            RecordingSink::default(),
+        )
+        .unwrap_err();
         assert!(err.contains("Cannot open"), "{err}");
     }
 
@@ -497,7 +615,13 @@ mod tests {
     fn anomaly_store_and_ip_counts_are_capped() {
         let sink = RecordingSink::default();
         let st = stores();
-        let mut proc = LineProcessor::new(build_chain(&LogFormat::Apache), 50, &DetectionSettings::default(), st.clone(), sink);
+        let mut proc = LineProcessor::new(
+            build_chain(&LogFormat::Apache),
+            50,
+            &DetectionSettings::default(),
+            st.clone(),
+            sink,
+        );
         proc.max_anomalies = 100;
         proc.max_ips = 1_000;
         for i in 0..5_000u32 {
@@ -506,7 +630,11 @@ mod tests {
         }
         let stored = st.anomalies.read().len();
         assert!(stored <= 110, "stored {stored}");
-        assert_eq!(st.anomalies.read().last().unwrap().entry_id, 5_000, "newest anomalies kept");
+        assert_eq!(
+            st.anomalies.read().last().unwrap().entry_id,
+            5_000,
+            "newest anomalies kept"
+        );
         assert!(proc.ip_counts.len() <= 1_000);
         assert_eq!(proc.anomaly_count, 5_000, "totals still count everything");
     }
@@ -515,8 +643,18 @@ mod tests {
     fn allowlist_applies_to_file_loads() {
         let path = temp_path("allow.log");
         std::fs::write(&path, sample_log()).unwrap();
-        let settings = DetectionSettings { allowlist: vec!["198.51.100.0/24".into()], ..Default::default() };
-        let stats = process_file(path.to_str().unwrap(), None, &settings, stores(), RecordingSink::default()).unwrap();
+        let settings = DetectionSettings {
+            allowlist: vec!["198.51.100.0/24".into()],
+            ..Default::default()
+        };
+        let stats = process_file(
+            path.to_str().unwrap(),
+            None,
+            &settings,
+            stores(),
+            RecordingSink::default(),
+        )
+        .unwrap();
         assert_eq!(stats.anomaly_count, 0);
         let _ = std::fs::remove_file(path);
     }
@@ -538,10 +676,20 @@ mod tests {
         let path = temp_path("live.log");
         std::fs::write(&path, sample_log()).unwrap();
         let sink = RecordingSink::default();
-        let handle = start_watching(path.to_str().unwrap().into(), None, &DetectionSettings::default(), stores(), sink.clone()).unwrap();
+        let handle = start_watching(
+            path.to_str().unwrap().into(),
+            None,
+            &DetectionSettings::default(),
+            stores(),
+            sink.clone(),
+        )
+        .unwrap();
 
         // Existing content is skipped; only appended lines are processed
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         writeln!(f, "{}", apache("192.0.2.1", "/new-1", 200)).unwrap();
         // Half a line, completed later: must arrive as one entry
         let partial = apache("192.0.2.2", "/split-line", 200);
@@ -553,13 +701,34 @@ mod tests {
         f.flush().unwrap();
         drop(f);
 
-        let paths = || sink.entries().iter().filter_map(|e| e.path.clone()).collect::<Vec<_>>();
-        assert!(wait_for(Duration::from_secs(10), || paths().len() >= 2), "got {:?}", paths());
-        assert_eq!(paths(), vec!["/new-1".to_string(), "/split-line".to_string()]);
+        let paths = || {
+            sink.entries()
+                .iter()
+                .filter_map(|e| e.path.clone())
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            wait_for(Duration::from_secs(10), || paths().len() >= 2),
+            "got {:?}",
+            paths()
+        );
+        assert_eq!(
+            paths(),
+            vec!["/new-1".to_string(), "/split-line".to_string()]
+        );
 
         // Truncate and write fresh content: tailing restarts from the top
-        std::fs::write(&path, format!("{}\n", apache("192.0.2.3", "/after-truncate", 200))).unwrap();
-        assert!(wait_for(Duration::from_secs(10), || paths().contains(&"/after-truncate".to_string())), "got {:?}", paths());
+        std::fs::write(
+            &path,
+            format!("{}\n", apache("192.0.2.3", "/after-truncate", 200)),
+        )
+        .unwrap();
+        assert!(
+            wait_for(Duration::from_secs(10), || paths()
+                .contains(&"/after-truncate".to_string())),
+            "got {:?}",
+            paths()
+        );
 
         handle.stop_tx.send(()).unwrap();
         assert!(sink.errors().is_empty(), "{:?}", sink.errors());
@@ -569,12 +738,31 @@ mod tests {
     #[test]
     fn watch_rejects_gzip_and_missing_files() {
         let path = temp_path("live.gz");
-        let mut enc = flate2::write::GzEncoder::new(File::create(&path).unwrap(), flate2::Compression::default());
+        let mut enc = flate2::write::GzEncoder::new(
+            File::create(&path).unwrap(),
+            flate2::Compression::default(),
+        );
         enc.write_all(b"x\n").unwrap();
         enc.finish().unwrap();
-        let err = start_watching(path.to_str().unwrap().into(), None, &DetectionSettings::default(), stores(), RecordingSink::default()).err().unwrap();
+        let err = start_watching(
+            path.to_str().unwrap().into(),
+            None,
+            &DetectionSettings::default(),
+            stores(),
+            RecordingSink::default(),
+        )
+        .err()
+        .unwrap();
         assert!(err.contains("can't be watched"), "{err}");
-        let err = start_watching("Z:/missing.log".into(), None, &DetectionSettings::default(), stores(), RecordingSink::default()).err().unwrap();
+        let err = start_watching(
+            "Z:/missing.log".into(),
+            None,
+            &DetectionSettings::default(),
+            stores(),
+            RecordingSink::default(),
+        )
+        .err()
+        .unwrap();
         assert!(err.contains("Cannot open"), "{err}");
         let _ = std::fs::remove_file(path);
     }

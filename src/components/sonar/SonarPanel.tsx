@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTauriEvents } from '../../hooks/useTauriEvents'
-import type { Anomaly, AnomalyPayload, Severity } from '../../types/hollow'
+import type { Anomaly, AnomalyPayload, Severity, StreamResetPayload } from '../../types/hollow'
 import { severityColor, severityLabel, formatTimestamp } from '../../lib/format'
 import RadarRing from './RadarRing'
 import AnomalyBlip from './AnomalyBlip'
@@ -49,6 +49,11 @@ interface Props {
 export default function SonarPanel({ threatScore }: Props) {
   const [anomalies, setAnomalies] = useState<Anomaly[]>([])
   const [newIds, setNewIds] = useState<Set<number>>(new Set())
+
+  useTauriEvents<StreamResetPayload>('stream_reset', () => {
+    setAnomalies([])
+    setNewIds(new Set())
+  })
 
   useTauriEvents<AnomalyPayload>('anomaly_detected', (incoming) => {
     if (!incoming.length) return

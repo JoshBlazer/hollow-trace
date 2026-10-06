@@ -110,7 +110,7 @@ export default function SettingsPanel({ onClose }: Props) {
             </Field>
             <Field label="ALLOWLIST" hint="One IP or CIDR per line (e.g. 10.0.0.0/8). Never flagged. # starts a comment.">
               <textarea
-                className={`${INPUT} h-28 resize-none`}
+                className={`${INPUT} h-28 resize-none placeholder:text-neon/20`}
                 spellCheck={false}
                 placeholder={'10.0.0.0/8\n203.0.113.5   # office VPN'}
                 value={form.allowlist}
